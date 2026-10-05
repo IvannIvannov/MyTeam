@@ -169,7 +169,6 @@
   justify-content: center;
   min-width: 0;
   width: 100%;
-  overflow: hidden;
   padding: 0 2px;
 }
 
@@ -182,7 +181,9 @@
   text-align: center;
   margin: 0;
   line-height: 1.2;
-  white-space: nowrap;
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 .card-title span { color: #32cd32; }
@@ -201,10 +202,6 @@
   white-space: normal;
   overflow-wrap: anywhere;
   word-break: break-word;
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-  overflow: hidden;
 }
 
 /* ── Shield ── */
