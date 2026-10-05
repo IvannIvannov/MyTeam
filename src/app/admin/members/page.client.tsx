@@ -812,6 +812,7 @@ function AdminMembersPageContent() {
   const [clubMatches, setClubMatches] = useState<ClubMatch[]>([]);
   const [matchViewPopupOpen, setMatchViewPopupOpen] = useState(false);
   const [matchViewMatch, setMatchViewMatch] = useState<ClubMatch | null>(null);
+  const [matchEditTarget, setMatchEditTarget] = useState<ClubMatch | null>(null);
   const [dayDetailsMatchEditOpen, setDayDetailsMatchEditOpen] = useState(false);
   const [dayDetailsMatchEditForm, setDayDetailsMatchEditForm] = useState<{ opponent: string; location: string; matchDate: string; matchTime: string; durationMinutes: string; isHome: boolean; customGroupId: string | null }>({ opponent: "", location: "", matchDate: "", matchTime: "", durationMinutes: "90", isHome: true, customGroupId: null });
   const [dayDetailsMatchSaving, setDayDetailsMatchSaving] = useState(false);
@@ -2321,7 +2322,7 @@ function AdminMembersPageContent() {
   const dayDetailsHasTabs = dayDetailsSessions.length > 1 || dayDetailsMatchesAll.length > 0;
   const dayDetailsIsMatchTab = trainingDayDetailsTab.startsWith("match-");
   const dayDetailsActiveMatch = dayDetailsIsMatchTab
-    ? (dayDetailsMatchesAll.find((m) => `match-${m.id}` === trainingDayDetailsTab) ?? null)
+    ? (matchEditTarget ?? dayDetailsMatchesAll.find((m) => `match-${m.id}` === trainingDayDetailsTab) ?? null)
     : null;
   const activeMemberIdSet = new Set(members.filter((m) => m.isActive).map((m) => m.id));
   const activeMembersByCustomGroup = customTrainingGroups.reduce<Record<string, number>>((acc, group) => {
@@ -4930,6 +4931,10 @@ function AdminMembersPageContent() {
       const data = await res.json() as { error?: string };
       if (!res.ok) { setDayDetailsMatchError(data.error ?? "Грешка при запазване."); return; }
       setDayDetailsMatchEditOpen(false);
+      if (matchEditTarget) {
+        setTrainingDayDetailsOpen(false);
+        setMatchEditTarget(null);
+      }
       await Promise.all([fetchClubMatches(), fetchTrainingWeekSessions()]);
     } catch {
       setDayDetailsMatchError("Грешка при запазване.");
@@ -5030,6 +5035,7 @@ function AdminMembersPageContent() {
   };
 
   const openTrainingDayDetails = async (date: string, sessionId?: string) => {
+    setMatchEditTarget(null);
     const month = getMonthKeyFromIsoDate(date);
     setTrainingDayDetailsOpening(true);
     setTrainingDayDetailsViewSnapshot(trainingAttendanceView);
@@ -6887,6 +6893,35 @@ function AdminMembersPageContent() {
                   <span className="amp-match-view-value">{matchViewMatch.durationMinutes} мин</span>
                 </div>
               )}
+            </div>
+            <div className="amp-modal-actions amp-modal-actions--end" style={{ marginTop: "8px" }}>
+              <button
+                type="button"
+                className="amp-btn amp-btn--ghost"
+                onClick={() => {
+                  setDayDetailsMatchEditForm({
+                    opponent: matchViewMatch.opponent,
+                    location: matchViewMatch.location,
+                    matchDate: matchViewMatch.matchDate,
+                    matchTime: matchViewMatch.matchTime,
+                    durationMinutes: String(matchViewMatch.durationMinutes),
+                    isHome: matchViewMatch.isHome,
+                    customGroupId: matchViewMatch.customGroupId,
+                  });
+                  setDayDetailsMatchError("");
+                  setDayDetailsMatchDeleteConfirm(false);
+                  setDayDetailsMatchEditOpen(true);
+                  setMatchViewPopupOpen(false);
+                  setMatchEditTarget(matchViewMatch);
+                  setTrainingDayDetailsViewSnapshot(trainingAttendanceView);
+                  setTrainingAttendanceDate(matchViewMatch.matchDate);
+                  setTrainingDayDetailsTab(`match-${matchViewMatch.id}`);
+                  setTrainingDayDetailsOpening(false);
+                  setTrainingDayDetailsOpen(true);
+                }}
+              >
+                Редактирай
+              </button>
             </div>
           </div>
         </div>
@@ -9384,7 +9419,7 @@ function AdminMembersPageContent() {
                   <div className="amp-spinner" />
                 </div>
               </div>
-            ) : dayDetailsHasTabs && (
+            ) : !matchEditTarget && dayDetailsHasTabs && (
               <div className="amp-day-details-tabs">
                 {dayDetailsSessions.length > 0 ? (
                   dayDetailsSessions.map((session) => {
@@ -9500,7 +9535,15 @@ function AdminMembersPageContent() {
                       )}
                       {dayDetailsMatchError && <p style={{ color: "#ff6b6b", fontSize: 13, margin: 0 }}>{dayDetailsMatchError}</p>}
                       <div className="amp-modal-actions amp-modal-actions--end">
-                        <button type="button" className="amp-btn amp-btn--ghost" onClick={() => { setDayDetailsMatchEditOpen(false); setDayDetailsMatchError(""); }} disabled={dayDetailsMatchSaving}>Назад</button>
+                        <button type="button" className="amp-btn amp-btn--ghost" onClick={() => {
+                          setDayDetailsMatchEditOpen(false);
+                          setDayDetailsMatchError("");
+                          if (matchEditTarget) {
+                            setTrainingDayDetailsOpen(false);
+                            setMatchEditTarget(null);
+                            setMatchViewPopupOpen(true);
+                          }
+                        }} disabled={dayDetailsMatchSaving}>Назад</button>
                         <button type="button" className="amp-btn amp-btn--primary" onClick={() => void handleDayDetailsMatchSave()} disabled={dayDetailsMatchSaving}>{dayDetailsMatchSaving ? "Запазване..." : "Запази"}</button>
                       </div>
                     </div>
