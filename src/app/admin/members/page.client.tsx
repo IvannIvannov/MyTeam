@@ -7,6 +7,7 @@ import { uploadImage, validateImageFile } from "@/lib/uploadImage";
 import { isValidPhone } from "@/lib/phone";
 import { getCompatiblePushSubscription } from "@/lib/push/browser";
 import AdminLogoutButton from "@/components/admin/AdminLogoutButton";
+import CoachMessageModal from "@/components/admin/CoachMessageModal";
 import "./page.css";
 import {
   CUSTOM_TRAINING_GROUP_COLOR_PALETTE,
@@ -893,6 +894,7 @@ function AdminMembersPageContent() {
   const [guideImgPos, setGuideImgPos] = useState({ x: 0, y: 0 });
   const guideImgTouchRef = useRef<{ startDist: number; startScale: number; startX: number; startY: number; startPosX: number; startPosY: number } | null>(null);
   const [notifyPanelOpen, setNotifyPanelOpen] = useState(false);
+  const [coachMessageOpen, setCoachMessageOpen] = useState(false);
   const [notifyMessage, setNotifyMessage] = useState("");
   const [notifySelectedIds, setNotifySelectedIds] = useState<Set<string>>(new Set());
   const [notifySearchTerm, setNotifySearchTerm] = useState("");
@@ -10650,7 +10652,14 @@ function AdminMembersPageContent() {
         </div>
       )}
 
-      {notifyPanelOpen && (
+      {coachMessageOpen && (isAdmin || isCoach) && clubId && (
+        <CoachMessageModal
+          clubId={clubId}
+          groups={coachGroups}
+          onClose={() => setCoachMessageOpen(false)}
+        />
+      )}
+      {notifyPanelOpen && !coachMessageOpen && (
         <div
           className="amp-overlay amp-overlay--confirm"
           onClick={() => { if (!notifyBusy) setNotifyPanelOpen(false); }}
@@ -10673,7 +10682,19 @@ function AdminMembersPageContent() {
               </button>
             </h2>
             <div className="amp-modal-body">
-              {isAdmin && !coachGroupId && coachGroups.length > 0 && (
+              {(isAdmin || isCoach) && clubId && (
+                <button
+                  className="amp-btn amp-btn--ghost amp-btn--compact"
+                  type="button"
+                  disabled={notifyBusy}
+                  style={{ marginBottom: 16 }}
+                  onClick={async () => { await loadCoachGroups(); setCoachMessageOpen(true); }}
+                >
+                  <BellIcon />
+                  <span>Изпрати до треньори</span>
+                </button>
+              )}
+              {(isAdmin || isCoach) && !coachGroupId && coachGroups.length > 0 && (
                 <label className="amp-edit-field" style={{ marginBottom: "12px" }}>
                   <span className="amp-lbl">Група треньор</span>
                   <select

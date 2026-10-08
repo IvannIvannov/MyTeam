@@ -41,7 +41,8 @@ export async function POST(
     typeof coachGroupIdRaw === "string" && coachGroupIdRaw.trim() ? coachGroupIdRaw.trim() : null;
 
   try {
-    const updated = await markClubAdminNotificationsRead({ clubId, playerId, coachGroupId });
+    const excludeCoachPageMessages = !coachGroupId && session.roles.includes("coach") && !session.roles.includes("admin");
+    const updated = await markClubAdminNotificationsRead({ clubId, playerId, coachGroupId, excludeCoachPageMessages });
     return NextResponse.json({ success: true, markedRead: updated.count });
   } catch (error) {
     console.error("Admin notifications read error:", error);
