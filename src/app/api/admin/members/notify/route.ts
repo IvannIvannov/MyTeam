@@ -72,13 +72,6 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Невалиден coachGroupId" }, { status: 400 });
   }
 
-  if (isCoach && !isAdmin && !coachGroupId) {
-    return NextResponse.json(
-      { error: "coachGroupId е задължително за треньори" },
-      { status: 400 }
-    );
-  }
-
   const allowedPlayers = await withPrismaPoolRetry(() =>
     prisma.player.findMany({
       where: {
