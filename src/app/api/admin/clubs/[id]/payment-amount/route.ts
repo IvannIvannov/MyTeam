@@ -17,7 +17,7 @@ export async function PATCH(
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  if (!payload.roles.includes("admin")) {
+  if (!payload.roles.includes("admin") && !payload.roles.includes("coach")) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
@@ -62,4 +62,3 @@ export async function PATCH(
     return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });
   }
 }
-
