@@ -5407,12 +5407,15 @@ function AdminMembersPageContent() {
 
       <div className="amp-inner">
         <div style={{ display: "flex", alignItems: "center", marginBottom: "10px" }}>
-          {isAdmin && (
+          {(isAdmin || (isCoach && searchParams.has("coachGroupId"))) && (
             <button
               className="amp-back-btn amp-btn--compact"
               onClick={() => {
-                if (coachGroupId && clubId) {
-                  router.push(`/admin/members?clubId=${encodeURIComponent(clubId)}`);
+                if (searchParams.has("coachGroupId")) {
+                  const params = new URLSearchParams(searchParams.toString());
+                  params.delete("coachGroupId");
+                  const query = params.toString();
+                  router.push(`/admin/members${query ? `?${query}` : ""}`);
                   return;
                 }
                 router.push("/admin/players");
