@@ -108,8 +108,8 @@ export async function sendTrainingScheduleNotifications(input: {
 
         let historySaved = 0;
         try {
-          await saveMemberNotificationHistory(member.id, "training_reminder", payload);
-          historySaved = 1;
+          const saved = await saveMemberNotificationHistory(member.id, "training_reminder", payload);
+          historySaved = saved ? 1 : 0;
         } catch (error) {
           console.error("Training schedule notification history save failed:", error);
         }
@@ -245,12 +245,16 @@ function buildTrainingSchedulePayload(input: {
   nextDates: string[];
 }): PushNotificationPayload {
   const body = buildTrainingScheduleMessage(input.previousDates, input.nextDates);
+  const { added, removed } = diffDates(input.previousDates, input.nextDates);
   return {
     title: "Тренировъчен график",
     body,
     icon: "/myteam-logo.webp",
     badge: "/myteam-logo.webp",
     tag: "training-schedule-updated",
-    data: { type: "training_reminder" },
+    data: {
+      type: "training_reminder",
+      trainingDates: uniqueSortedDates([...added, ...removed]),
+    },
   };
 }

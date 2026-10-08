@@ -2,6 +2,7 @@ import webpush from "web-push";
 import { prisma } from "@/lib/db";
 import { getVapidConfig } from "@/lib/push/vapid";
 import { saveMemberNotificationHistory } from "@/lib/push/history";
+import { isTrainingNotificationPaused } from "@/lib/push/trainingPause";
 import type {
   BrowserPushSubscription,
   PushNotificationPayload,
@@ -114,6 +115,10 @@ export async function sendPushToMember(
   payload: PushNotificationPayload,
   notificationType?: NotificationTemplateType
 ): Promise<SendPushResult> {
+  if (await isTrainingNotificationPaused(memberId, payload, notificationType)) {
+    return { total: 0, sent: 0, failed: 0, deactivated: 0 };
+  }
+
   // Always save to notification history when a type is given, regardless of push subscription status
   if (notificationType) {
     try {

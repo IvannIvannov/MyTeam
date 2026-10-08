@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/db";
 import { publishMemberUpdated } from "@/lib/memberEvents";
+import { isTrainingNotificationPaused } from "@/lib/push/trainingPause";
 import type { NotificationTemplateType, PushNotificationPayload } from "@/lib/push/types";
 
 export async function saveMemberNotificationHistory(
@@ -7,6 +8,8 @@ export async function saveMemberNotificationHistory(
   type: NotificationTemplateType,
   payload: PushNotificationPayload
 ) {
+  if (await isTrainingNotificationPaused(memberId, payload, type)) return null;
+
   const saved = await prisma.playerNotification.create({
     data: {
       playerId: memberId,
