@@ -5543,7 +5543,7 @@ function AdminMembersPageContent() {
               <span>Групи</span>
             </button>
           )}
-          {isAdmin && clubId && !coachGroupId && (
+          {(isAdmin || isCoach) && clubId && !coachGroupId && (
             <button
               className="amp-download-links-btn amp-scheduler-settings-btn amp-btn--compact"
               onClick={() => { void loadCoachGroups(); setCoachGroupsPanelOpen(true); }}
@@ -6617,7 +6617,7 @@ function AdminMembersPageContent() {
           </div>
         </div>
       )}
-      {coachGroupsPanelOpen && isAdmin && (
+      {coachGroupsPanelOpen && (isAdmin || isCoach) && (
         <div className="amp-overlay amp-overlay--confirm" onClick={() => { setCoachGroupsPanelOpen(false); setCoachGroupCreateName(""); setCoachGroupCreateError(""); setCoachGroupDeleteId(null); setCoachGroupEditId(null); setCoachGroupEditName(""); setCoachGroupEditError(""); }}>
           <div className="amp-modal amp-modal--confirm" onClick={(e) => e.stopPropagation()}>
             <div className="amp-modal-tint" aria-hidden="true" />
