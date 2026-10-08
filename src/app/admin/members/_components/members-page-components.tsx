@@ -934,6 +934,7 @@ function ReportsDialog({
         if (filterCustomGroupId) {
           search.set("customGroupId", filterCustomGroupId);
         }
+        search.set("includeAllPaymentWaivers", "true");
         const endpoint = search.size ? `/api/admin/members?${search.toString()}` : "/api/admin/members";
         const response = await fetch(endpoint, { cache: "no-store" });
         if (!response.ok) {
@@ -962,6 +963,15 @@ function ReportsDialog({
               teamGroup: typeof raw.teamGroup === "number" ? raw.teamGroup : null,
               paymentAmount: raw.paymentAmount === null || raw.paymentAmount === undefined ? null : String(raw.paymentAmount),
               paymentLogs,
+              paymentWaivers: Array.isArray(raw.paymentWaivers)
+                ? raw.paymentWaivers.map((waiver) => ({
+                    waivedFor: String(
+                      typeof waiver === "object" && waiver !== null
+                        ? (waiver as Record<string, unknown>).waivedFor ?? ""
+                        : "",
+                    ),
+                  }))
+                : [],
               isActive: raw.isActive === false ? false : true,
             };
           })
@@ -1032,7 +1042,15 @@ function ReportsDialog({
     return Number.isFinite(parsed) ? `€${parsed.toFixed(2)}` : "€0.00";
   };
 
-  const rows = players.map((player) => {
+  const monthlyPlayers = players.filter((player) =>
+    !player.paymentWaivers.some(({ waivedFor }) => {
+      const waivedDate = new Date(waivedFor);
+      return waivedDate.getUTCMonth() === selectedMonthIdx &&
+        waivedDate.getUTCFullYear() === selectedYear;
+    }),
+  );
+
+  const rows = monthlyPlayers.map((player) => {
     const paidDate = getPaymentDateForMonth(player);
     return {
       id: player.id,
@@ -1058,9 +1076,8 @@ function ReportsDialog({
     };
   });
 
-  const statsRows = rows.filter((row) => row.isActive);
-  const paidCount = statsRows.filter((row) => row.paid).length;
-  const total = statsRows.length;
+  const paidCount = rows.filter((row) => row.paid).length;
+  const total = rows.length;
   const pct = total > 0 ? Math.round((paidCount / total) * 100) : 0;
   const missing = total - paidCount;
 

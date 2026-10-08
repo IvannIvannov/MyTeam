@@ -12,6 +12,7 @@ interface ReportPlayer {
   teamGroup: number | null;
   paymentAmount: string | null;
   paymentLogs: ReportPaymentLog[];
+  paymentWaivers: Array<{ waivedFor: string }>;
   isActive?: boolean;
 }
 

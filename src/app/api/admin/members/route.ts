@@ -337,6 +337,7 @@ export async function GET(request: NextRequest) {
     }
 
     const now = new Date();
+    const includeAllPaymentWaivers = request.nextUrl.searchParams.get("includeAllPaymentWaivers") === "true";
     const currentMonthStart = normalizeToMonthStart(now);
     const nextMonthStart = new Date(Date.UTC(
       currentMonthStart.getUTCFullYear(),
@@ -405,7 +406,7 @@ export async function GET(request: NextRequest) {
           },
         },
         paymentWaivers: {
-          where: {
+          where: includeAllPaymentWaivers ? undefined : {
             waivedFor: {
               gte: currentMonthStart,
               lt: nextMonthStart,
@@ -434,7 +435,9 @@ export async function GET(request: NextRequest) {
     const cloudName = process.env.CLOUDINARY_CLOUD_NAME ?? "";
     const normalizedPlayers = players.map((player) => {
       const imagePath = getPrimaryPlayerImagePath(player.images);
-      const waivedDates = player.paymentWaivers.map((item) => item.waivedFor);
+      const waivedDates = player.paymentWaivers
+        .map((item) => item.waivedFor)
+        .filter((date) => date >= currentMonthStart && date < nextMonthStart);
       const row = player as typeof player & {
         customTrainingGroups?: Array<{ group: { color: string | null } }>;
       };
