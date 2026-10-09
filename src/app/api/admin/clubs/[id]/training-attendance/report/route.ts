@@ -266,7 +266,7 @@ export async function GET(
       [];
 
     // A player can train in custom groups whose schedule differs from their birth year.
-    const playerCustomGroups = targetPlayer
+    const playerCustomGroups = targetPlayer && club.trainingGroupMode === "custom_group"
       ? await prisma.clubCustomTrainingGroup.findMany({
           where: {
             clubId: id,
@@ -370,9 +370,17 @@ export async function GET(
       for (const row of session.players) {
         if (!row.playerId) continue;
         if (!sessionAttendanceMap.has(row.playerId)) sessionAttendanceMap.set(row.playerId, new Map());
-        sessionAttendanceMap.get(row.playerId)!.set(iso, {
-          present: row.present,
-          reasonCode: row.reasonCode ?? null,
+        const byDate = sessionAttendanceMap.get(row.playerId)!;
+        const previous = byDate.get(iso);
+        // This report measures days: attending any session means attending that day.
+        // For an absent day, choose a stable reason when sessions disagree.
+        const present = row.present || (previous?.present ?? false);
+        const reasons = [previous?.reasonCode, row.reasonCode]
+          .filter((reason): reason is string => typeof reason === "string")
+          .sort();
+        byDate.set(iso, {
+          present,
+          reasonCode: present ? null : (reasons[0] ?? null),
         });
       }
     }

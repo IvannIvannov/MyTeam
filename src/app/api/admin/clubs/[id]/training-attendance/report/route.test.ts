@@ -30,7 +30,7 @@ describe("individual attendance report", () => {
   beforeEach(() => {
     vi.resetAllMocks();
     mocks.auth.mockResolvedValue({ roles: ["admin"] });
-    mocks.club.mockResolvedValue({ id: "club-1", trainingDates: [], trainingWeekdays: [] });
+    mocks.club.mockResolvedValue({ id: "club-1", trainingGroupMode: "custom_group", trainingDates: [], trainingWeekdays: [] });
     mocks.player.mockResolvedValue({ id: "player-1", fullName: "Играч", teamGroup: 2012 });
     mocks.players.mockResolvedValue([]);
     mocks.schedule.mockResolvedValue(null);
@@ -93,5 +93,31 @@ describe("individual attendance report", () => {
     expect(response.status).toBe(404);
     expect(mocks.player.mock.calls[0][0].where).toMatchObject({ clubId: "club-1", coachGroups: { some: { id: "coach-1" } } });
     expect(mocks.sessions).not.toHaveBeenCalled();
+  });
+
+  it("preserves team dates when custom memberships remain in team-group mode", async () => {
+    mocks.club.mockResolvedValue({ id: "club-1", trainingGroupMode: "team_group", trainingDates: [], trainingWeekdays: [] });
+    mocks.schedule.mockResolvedValue({ trainingDates: ["2026-10-01"], trainingWeekdays: [] });
+    mocks.customGroups.mockResolvedValue([{ trainingDates: ["2026-10-02"], trainingWeekdays: [] }]);
+    const data = await (await report("playerId=player-1")).json();
+    expect(data.trainingDates).toEqual(["2026-10-01"]);
+    expect(mocks.customGroups).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    { states: [true, false], reasons: [null, "sick"], expected: { present: true, reasonCode: null } },
+    { states: [false, false], reasons: ["sick", "injury"], expected: { present: false, reasonCode: "injury" } },
+    { states: [false, false], reasons: [null, "sick"], expected: { present: false, reasonCode: "sick" } },
+  ])("combines same-day sessions consistently: $states / $reasons", async ({ states, reasons, expected }) => {
+    const sessions = states.map((present, index) => ({
+      trainingDate: new Date("2026-10-02T00:00:00Z"),
+      players: [{ playerId: "player-1", present, reasonCode: reasons[index] }],
+    }));
+    for (const rows of [sessions, [...sessions].reverse()]) {
+      mocks.sessions.mockResolvedValue(rows);
+      const data = await (await report("playerId=player-1")).json();
+      expect(data.trainingDates).toEqual(["2026-10-02"]);
+      expect(data.players[0].attendance["2026-10-02"]).toEqual(expected);
+    }
   });
 });
