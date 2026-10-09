@@ -75,6 +75,8 @@ function AttendanceDashboard({
   const [groupScope, setGroupScope] = useState("");
   const [playerSearch, setPlayerSearch] = useState("");
   const [selectedPlayerId, setSelectedPlayerId] = useState("");
+  const [playerMenuOpen, setPlayerMenuOpen] = useState(false);
+  const [activePlayerOption, setActivePlayerOption] = useState(0);
   const [showSearchResults, setShowSearchResults] = useState(false);
   const [allPlayers, setAllPlayers] = useState<Array<{ id: string; fullName: string; teamGroup: number | null }>>([]);
   const [data, setData] = useState<AttendanceReportData | null>(null);
@@ -865,6 +867,10 @@ function ReportsDialog({
   const [filterCoachGroupId, setFilterCoachGroupId] = useState(coachGroupId);
   const [customTrainingGroupsList, setCustomTrainingGroupsList] = useState<Array<{ id: string; name: string }>>([]);
   const [filterCustomGroupId, setFilterCustomGroupId] = useState("");
+  const [playerSearch, setPlayerSearch] = useState("");
+  const [selectedPlayerId, setSelectedPlayerId] = useState("");
+  const [playerMenuOpen, setPlayerMenuOpen] = useState(false);
+  const [activePlayerOption, setActivePlayerOption] = useState(0);
 
   useEffect(() => {
     if (!clubId) return;
@@ -921,8 +927,12 @@ function ReportsDialog({
   }, [clubId, filterCoachGroupId]);
 
   useEffect(() => {
+    let cancelled = false;
+    setSelectedPlayerId("");
+    setPlayerSearch("");
     const fetchPlayers = async () => {
       setLoading(true);
+      setPlayers([]);
       try {
         const search = new URLSearchParams();
         if (clubId) {
@@ -937,6 +947,7 @@ function ReportsDialog({
         search.set("includeAllPaymentWaivers", "true");
         const endpoint = search.size ? `/api/admin/members?${search.toString()}` : "/api/admin/members";
         const response = await fetch(endpoint, { cache: "no-store" });
+        if (cancelled) return;
         if (!response.ok) {
           setPlayers([]);
           return;
@@ -976,16 +987,17 @@ function ReportsDialog({
             };
           })
           : [];
-        setPlayers(normalizedPlayers);
+        if (!cancelled) setPlayers(normalizedPlayers);
       } catch (error) {
         console.error("Error fetching report players:", error);
-        setPlayers([]);
+        if (!cancelled) setPlayers([]);
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
     };
 
     void fetchPlayers();
+    return () => { cancelled = true; };
   }, [clubId, filterCoachGroupId, filterCustomGroupId]);
 
   const years = Array.from(
@@ -1042,7 +1054,19 @@ function ReportsDialog({
     return Number.isFinite(parsed) ? `€${parsed.toFixed(2)}` : "€0.00";
   };
 
-  const monthlyPlayers = players.filter((player) =>
+  const normalizePlayerName = (name: string) =>
+    name.normalize("NFC").toLocaleLowerCase("bg-BG").trim().replace(/\s+/g, " ");
+  const searchTerms = normalizePlayerName(playerSearch).split(" ").filter(Boolean);
+  const matchingPlayers = sortByName(
+    players.filter((player) =>
+      searchTerms.every((term) => normalizePlayerName(player.fullName).includes(term)),
+    ).map((player) => ({ ...player, name: player.fullName })),
+  );
+  const reportPlayers = matchingPlayers.filter((player) =>
+    !selectedPlayerId || player.id === selectedPlayerId,
+  );
+
+  const monthlyPlayers = reportPlayers.filter((player) =>
     !player.paymentWaivers.some(({ waivedFor }) => {
       const waivedDate = new Date(waivedFor);
       return waivedDate.getUTCMonth() === selectedMonthIdx &&
@@ -1063,7 +1087,7 @@ function ReportsDialog({
     };
   });
 
-  const rowsYearly = players.map((player) => {
+  const rowsYearly = reportPlayers.map((player) => {
     const paidDate = getPaymentDateForYear(player);
     return {
       id: player.id,
@@ -1194,6 +1218,97 @@ function ReportsDialog({
           </h2>
         </div>
 
+        <div className="rd-player-filters">
+          <div
+            className="rd-field rd-field--grow rd-player-combobox"
+            onBlur={(e) => {
+              if (!e.currentTarget.contains(e.relatedTarget)) setPlayerMenuOpen(false);
+            }}
+          >
+            <label className="rd-label" htmlFor="rd-player-search">Играч</label>
+            <div className="rd-select-wrap">
+              <input
+                id="rd-player-search"
+                className="rd-select rd-player-search"
+                type="text"
+                role="combobox"
+                aria-autocomplete="list"
+                aria-expanded={playerMenuOpen}
+                aria-controls="rd-player-options"
+                aria-activedescendant={playerMenuOpen ? `rd-player-option-${activePlayerOption}` : undefined}
+                autoComplete="off"
+                placeholder={loading ? "Зареждане…" : "Всички играчи — търсете по име…"}
+                value={playerSearch}
+                disabled={loading}
+                onFocus={() => {
+                  setPlayerMenuOpen(true);
+                  setActivePlayerOption(0);
+                }}
+                onClick={() => setPlayerMenuOpen(true)}
+                onChange={(e) => {
+                  setPlayerSearch(e.target.value);
+                  setSelectedPlayerId("");
+                  setPlayerMenuOpen(true);
+                  setActivePlayerOption(0);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Escape") {
+                    setPlayerMenuOpen(false);
+                  } else if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+                    e.preventDefault();
+                    setPlayerMenuOpen(true);
+                    const next = Math.max(0, Math.min(matchingPlayers.length,
+                      activePlayerOption + (e.key === "ArrowDown" ? 1 : -1)));
+                    setActivePlayerOption(next);
+                    document.getElementById(`rd-player-option-${next}`)?.scrollIntoView({ block: "nearest" });
+                  } else if (e.key === "Enter" && playerMenuOpen) {
+                    e.preventDefault();
+                    const player = matchingPlayers[activePlayerOption - 1];
+                    setSelectedPlayerId(player?.id ?? "");
+                    setPlayerSearch(player?.fullName ?? "");
+                    setPlayerMenuOpen(false);
+                  }
+                }}
+              />
+              <ChevronDownIcon />
+            </div>
+            {playerMenuOpen && (
+              <div id="rd-player-options" className="rd-player-options" role="listbox" aria-label="Играчи от групата">
+                <div
+                  id="rd-player-option-0"
+                  role="option"
+                  aria-selected={!selectedPlayerId}
+                  className={`rd-player-option${activePlayerOption === 0 ? " active" : ""}`}
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => {
+                    setSelectedPlayerId("");
+                    setPlayerSearch("");
+                    setPlayerMenuOpen(false);
+                  }}
+                >Всички играчи</div>
+                {matchingPlayers.map((player, index) => (
+                  <div
+                    key={player.id}
+                    id={`rd-player-option-${index + 1}`}
+                    role="option"
+                    aria-selected={selectedPlayerId === player.id}
+                    className={`rd-player-option${activePlayerOption === index + 1 ? " active" : ""}`}
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => {
+                      setSelectedPlayerId(player.id);
+                      setPlayerSearch(player.fullName);
+                      setPlayerMenuOpen(false);
+                    }}
+                  >{player.fullName}</div>
+                ))}
+                {matchingPlayers.length === 0 && (
+                  <div className="rd-player-no-results">Няма играчи с това име.</div>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+
         <div className="rd-filters">
           <div className="rd-filters-left">
             <div className="rd-field">
@@ -1317,11 +1432,11 @@ function ReportsDialog({
         </div>
 
         <div className="rd-footer">
-          <button className="rd-footer-btn" onClick={() => printReport("monthly")}>
+          <button className="rd-footer-btn" disabled={loading} onClick={() => printReport("monthly")}>
             <PrinterIcon />
             Генерирай месечен отчет
           </button>
-          <button className="rd-footer-btn" onClick={() => printReport("yearly")}>
+          <button className="rd-footer-btn" disabled={loading} onClick={() => printReport("yearly")}>
             <CalendarIcon />
             Генерирай годишен отчет
           </button>
