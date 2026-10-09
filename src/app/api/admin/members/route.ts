@@ -375,7 +375,7 @@ export async function GET(request: NextRequest) {
         customTrainingGroups: {
           select: {
             group: {
-              select: { color: true },
+              select: { color: true, name: true, coachGroupId: true },
             },
           },
         },
@@ -439,7 +439,7 @@ export async function GET(request: NextRequest) {
         .map((item) => item.waivedFor)
         .filter((date) => date >= currentMonthStart && date < nextMonthStart);
       const row = player as typeof player & {
-        customTrainingGroups?: Array<{ group: { color: string | null } }>;
+        customTrainingGroups?: Array<{ group: { color: string | null; name: string; coachGroupId: string | null } }>;
       };
       const { coachGroups, customTrainingGroups, ...rest } = row;
       const customTrainingGroupColors =
@@ -456,6 +456,11 @@ export async function GET(request: NextRequest) {
         ...rest,
         coachGroupIds: coachGroups.map((g) => g.id),
         customTrainingGroupColors,
+        customTrainingGroupNames: Array.from(new Set(
+          (customTrainingGroups ?? [])
+            .filter((link) => !coachGroupId || link.group.coachGroupId === coachGroupId)
+            .map((link) => link.group.name),
+        )).sort((a, b) => a.localeCompare(b, "bg")),
         status: rest.club.paymentWorkflow === "calendar_month" && waivedDates.length > 0
           ? "paused"
           : rest.club.paymentWorkflow === "training_credits"

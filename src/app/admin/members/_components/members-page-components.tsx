@@ -78,7 +78,7 @@ function AttendanceDashboard({
   const [playerMenuOpen, setPlayerMenuOpen] = useState(false);
   const [activePlayerOption, setActivePlayerOption] = useState(0);
   const [showSearchResults, setShowSearchResults] = useState(false);
-  const [allPlayers, setAllPlayers] = useState<Array<{ id: string; fullName: string; teamGroup: number | null }>>([]);
+  const [allPlayers, setAllPlayers] = useState<Array<{ id: string; fullName: string; teamGroup: number | null; customTrainingGroupNames: string[] }>>([]);
   const [data, setData] = useState<AttendanceReportData | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -130,6 +130,9 @@ function AttendanceDashboard({
                 id: String(r.id ?? ""),
                 fullName: String(r.fullName ?? "").trim(),
                 teamGroup: typeof r.teamGroup === "number" ? r.teamGroup : null,
+                customTrainingGroupNames: Array.isArray(r.customTrainingGroupNames)
+                  ? r.customTrainingGroupNames.filter((name): name is string => typeof name === "string" && Boolean(name.trim()))
+                  : [],
               };
             })
             .filter((p) => p.id && p.fullName);
@@ -270,7 +273,7 @@ function AttendanceDashboard({
             search.set("coachGroupId", groupScope.slice(3));
           }
         }
-        if (!groupScope.startsWith("cg:") && coachGroupId) {
+        if (coachGroupId && (scopeType === "player" || !groupScope.startsWith("cg:"))) {
           search.set("coachGroupId", coachGroupId);
         }
         const res = await fetch(
@@ -655,9 +658,6 @@ function AttendanceDashboard({
                         }}
                       >
                         {p.fullName}
-                        {p.teamGroup !== null && (
-                          <span className="acd-search-result-group">Набор {p.teamGroup}</span>
-                        )}
                       </li>
                     ))}
                   </ul>

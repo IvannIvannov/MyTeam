@@ -265,6 +265,18 @@ export async function GET(
       club.trainingWeekdays ??
       [];
 
+    // A player can train in custom groups whose schedule differs from their birth year.
+    const playerCustomGroups = targetPlayer
+      ? await prisma.clubCustomTrainingGroup.findMany({
+          where: {
+            clubId: id,
+            players: { some: { playerId: targetPlayer.id } },
+            ...(coachGroupId ? { coachGroupId } : {}),
+          },
+          select: { trainingDates: true, trainingWeekdays: true },
+        })
+      : [];
+
     const trainingDates = getTrainingDatesInRange({
       from,
       to,
@@ -287,7 +299,7 @@ export async function GET(
     const storedSessions = await prisma.trainingSession.findMany({
       where: {
         clubId: id,
-        scopeKey,
+        ...(targetPlayer ? { players: { some: { playerId: targetPlayer.id } } } : { scopeKey }),
         trainingDate: { gte: isoDateToUtcMidnight(from), lte: isoDateToUtcMidnight(to) },
         status: { not: "cancelled" },
       },
@@ -305,7 +317,16 @@ export async function GET(
     });
 
     const storedSessionDates = storedSessions.map((session) => utcDateToIsoDate(session.trainingDate));
-    const reportTrainingDates = mergeIsoDates(trainingDates, storedSessionDates);
+    const playerGroupDates = playerCustomGroups.map((group) => getTrainingDatesInRange({
+      from,
+      to,
+      trainingDates: group.trainingDates,
+      trainingWeekdays: group.trainingWeekdays,
+    }));
+    const reportTrainingDates = mergeIsoDates(
+      ...(playerCustomGroups.length > 0 ? playerGroupDates : [trainingDates]),
+      storedSessionDates,
+    );
 
     const players = targetPlayer
       ? [targetPlayer]
