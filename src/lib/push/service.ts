@@ -1,6 +1,7 @@
 import webpush from "web-push";
 import { prisma } from "@/lib/db";
 import { getVapidConfig } from "@/lib/push/vapid";
+import { serializePushPayload } from "@/lib/push/payload";
 import { saveMemberNotificationHistory } from "@/lib/push/history";
 import { isTrainingNotificationPaused } from "@/lib/push/trainingPause";
 import type {
@@ -151,7 +152,7 @@ export async function sendPushToMember(
   let sent = 0;
   let failed = 0;
   let deactivated = 0;
-  const body = JSON.stringify(payload);
+  const body = serializePushPayload(payload);
 
   await Promise.all(
     subscriptions.map(async (subscription) => {

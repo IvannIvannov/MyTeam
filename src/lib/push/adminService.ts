@@ -1,6 +1,7 @@
 import webpush from "web-push";
 import { prisma } from "@/lib/db";
 import { getVapidConfig } from "@/lib/push/vapid";
+import { serializePushPayload } from "@/lib/push/payload";
 import type { BrowserPushSubscription, PushNotificationPayload } from "@/lib/push/types";
 
 let isWebPushConfigured = false;
@@ -145,7 +146,7 @@ export async function sendPushToClubAdmins(
   let sent = 0;
   let failed = 0;
   let deactivated = 0;
-  const body = JSON.stringify(payload);
+  const body = serializePushPayload(payload);
 
   await Promise.all(
     subscriptions.map(async (subscription) => {
@@ -218,7 +219,7 @@ export async function sendPushToAllClubAdminScopes(
   let sent = 0;
   let failed = 0;
   let deactivated = 0;
-  const body = JSON.stringify(payload);
+  const body = serializePushPayload(payload);
 
   await Promise.all(
     subscriptions.map(async (subscription) => {

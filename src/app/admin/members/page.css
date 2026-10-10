@@ -1212,6 +1212,7 @@
 }
 
 .amp-member-notification-item p {
+  overflow-wrap: anywhere;
   margin: 0 0 8px;
   color: rgba(255, 255, 255, 0.8);
   font-size: 13px;
