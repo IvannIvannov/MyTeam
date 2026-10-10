@@ -26,10 +26,11 @@ export async function POST(request: NextRequest) {
       raw.coachGroupIds.length > 500 || !raw.coachGroupIds.every(isUuid)) {
     return NextResponse.json({ error: "Изберете валиден клуб и треньорски групи" }, { status: 400 });
   }
-  if (typeof raw.message !== "string" || !raw.message.trim() || raw.message.trim().length > 300) {
-    return NextResponse.json({ error: "Въведете съобщение до 300 символа" }, { status: 400 });
+  if (typeof raw.message !== "string" || !raw.message.trim()) {
+    return NextResponse.json({ error: "Въведете съобщение" }, { status: 400 });
   }
   const clubId = raw.clubId;
+  const notificationType = session.roles.includes("admin") ? "myteam_message" : "admin_message";
   const groupIds = [...new Set(raw.coachGroupIds as string[])];
   const groups = await prisma.coachGroup.findMany({ where: { clubId, id: { in: groupIds } }, select: { id: true } });
   if (groups.length !== groupIds.length) {
@@ -47,7 +48,7 @@ export async function POST(request: NextRequest) {
     payload.title = "Съобщение до треньори";
     // Store the page message even when no device is subscribed or push fails.
     try {
-      await saveAdminNotificationHistory({ clubId, coachGroupId: group.id, type: "admin_message", payload });
+      await saveAdminNotificationHistory({ clubId, coachGroupId: group.id, type: notificationType, payload });
       delivered += 1;
     } catch {
       failed += 1;

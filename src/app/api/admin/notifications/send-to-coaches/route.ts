@@ -85,7 +85,7 @@ export async function POST(request: NextRequest) {
           );
           await saveAdminNotificationHistory({
             clubId: club.id,
-            type: "admin_message",
+            type: "myteam_message",
             payload: pushPayload,
             coachGroupId: scope.coachGroupId,
           });

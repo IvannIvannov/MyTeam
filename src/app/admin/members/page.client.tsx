@@ -975,7 +975,7 @@ function AdminMembersPageContent() {
       return false;
     }
     if (clubNotificationsScopeType === "admin") {
-      return item.type === "admin_message";
+      return item.type === "admin_message" || item.type === "myteam_message";
     }
     if (clubNotificationsScopeValue !== "all") {
       if (clubNotificationsScopeType === "team") {
@@ -6011,9 +6011,9 @@ function AdminMembersPageContent() {
                             <h3>{notif.title}</h3>
                             {!notif.readAt ? <span className="amp-member-notification-new" aria-label={"\u041d\u043e\u0432\u043e"} /> : null}
                           </div>
-                          {notif.type === "admin_message" ? (
+                          {notif.type === "admin_message" || notif.type === "myteam_message" ? (
                             <span style={{ display: "inline-block", fontSize: "11px", fontWeight: 600, padding: "2px 8px", borderRadius: "9999px", background: "rgba(201,168,76,0.15)", color: "var(--accent-gold-color)", marginBottom: "6px" }}>
-                              {"\u0410\u0434\u043c\u0438\u043d\u0438\u0441\u0442\u0440\u0430\u0442\u043e\u0440"}
+                              {notif.type === "myteam_message" ? "MYTEAM7" : "\u0410\u0434\u043c\u0438\u043d\u0438\u0441\u0442\u0440\u0430\u0442\u043e\u0440"}
                             </span>
                           ) : null}
                           <p style={{ whiteSpace: "pre-wrap" }}>{notif.body}</p>
@@ -10806,15 +10806,11 @@ function AdminMembersPageContent() {
                   className="amp-edit-input amp-notify-textarea"
                   placeholder="Въведете съобщение..."
                   value={notifyMessage}
-                  maxLength={300}
                   rows={4}
                   onChange={(e) => setNotifyMessage(e.target.value)}
                   disabled={notifyBusy}
                   style={{ height: "auto", resize: "vertical", padding: "8px 10px" }}
                 />
-                <span style={{ fontSize: "11px", color: "rgba(255,255,255,0.3)", textAlign: "right", display: "block" }}>
-                  {notifyMessage.length}/300
-                </span>
               </label>
               {notifyError && (
                 <p className="amp-confirm-error" style={{ marginTop: "8px" }}>{notifyError}</p>

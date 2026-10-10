@@ -12,7 +12,7 @@ describe("coach main-page notification scope", () => {
     await getClubAdminNotifications(input);
     await getClubAdminUnreadCount(input);
     await markClubAdminNotificationsRead(input);
-    const excluded = { type: "admin_message", coachGroupId: { not: null } };
+    const excluded = { type: { in: ["admin_message", "myteam_message"] }, coachGroupId: { not: null } };
     expect(mocks.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: { clubId: "club", NOT: excluded } }));
     for (const method of [mocks.count, mocks.updateMany]) {
       expect(method).toHaveBeenCalledWith(expect.objectContaining({ where: { clubId: "club", readAt: null, NOT: excluded } }));

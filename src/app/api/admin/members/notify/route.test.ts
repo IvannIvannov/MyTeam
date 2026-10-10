@@ -19,11 +19,11 @@ vi.mock("@/lib/push/service", () => ({ sendPushToMember: mocks.sendPushToMember 
 const clubId = "11111111-1111-4111-8111-111111111111";
 const memberId = "22222222-2222-4222-8222-222222222222";
 const coachGroupId = "33333333-3333-4333-8333-333333333333";
-function request(groupId?: string) {
+function request(groupId?: string, message = "Hello") {
   return new NextRequest("http://localhost/api/admin/members/notify", {
     method: "POST",
     headers: { cookie: "admin_session=test", "Content-Type": "application/json" },
-    body: JSON.stringify({ clubId, memberIds: [memberId], message: "Hello", coachGroupId: groupId }),
+    body: JSON.stringify({ clubId, memberIds: [memberId], message, coachGroupId: groupId }),
   });
 }
 
@@ -43,6 +43,21 @@ describe("member message permissions", () => {
     expect(await response.json()).toEqual({ success: true, targeted: 1, sent: 1, skipped: 0, failed: 0 });
     expect(mocks.findMany.mock.calls[0][0].where).toEqual({ id: { in: [memberId] }, clubId, isActive: true });
     expect(mocks.sendPushToMember).toHaveBeenCalledWith(memberId, { title: "Message", body: "Hello" }, "trainer_message");
+  });
+
+  it("sends messages longer than 300 characters without truncating them", async () => {
+    const message = "Съобщение ".repeat(100);
+    const response = await POST(request(undefined, message));
+    expect(response.status).toBe(200);
+    expect(mocks.buildNotificationPayload).toHaveBeenCalledWith(expect.objectContaining({
+      trainerMessage: message.trim(),
+    }));
+    expect(mocks.sendPushToMember).toHaveBeenCalledOnce();
+  });
+
+  it.each(["", "   "])("rejects empty messages %j", async message => {
+    expect((await POST(request(undefined, message))).status).toBe(400);
+    expect(mocks.sendPushToMember).not.toHaveBeenCalled();
   });
 
   it("preserves the coach-group filter when provided", async () => {

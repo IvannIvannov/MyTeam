@@ -54,8 +54,7 @@ export default function CoachMessageModal({ clubId, groups, onClose }: {
           </div>
           <label className="amp-edit-field" style={{ marginTop: 16 }}>
             <span className="amp-lbl">Съобщение</span>
-            <textarea className="amp-edit-input amp-notify-textarea" rows={4} maxLength={300} placeholder="Въведете съобщение..." disabled={busy} value={message} onChange={event => setMessage(event.target.value)} style={{ height: "auto", resize: "vertical", padding: "8px 10px" }} />
-            <span>{message.length}/300</span>
+            <textarea className="amp-edit-input amp-notify-textarea" rows={4} placeholder="Въведете съобщение..." disabled={busy} value={message} onChange={event => setMessage(event.target.value)} style={{ height: "auto", resize: "vertical", padding: "8px 10px" }} />
           </label>
           {error && <p className="amp-confirm-error" role="alert">{error}</p>}
           {success && <p role="status">{success}</p>}

@@ -31,7 +31,7 @@ describe("coach page messages", () => {
     const response = await POST(request());
     expect(await response.json()).toEqual({ success: true, delivered: 1, sent: 1, failed: 0, pushFailed: 0 });
     expect(mocks.groups).toHaveBeenCalledWith({ where: { clubId, id: { in: [groupId] } }, select: { id: true } });
-    expect(mocks.history).toHaveBeenCalledWith({ clubId, coachGroupId: groupId, type: "admin_message", payload: {
+    expect(mocks.history).toHaveBeenCalledWith({ clubId, coachGroupId: groupId, type: role === "admin" ? "myteam_message" : "admin_message", payload: {
       title: "Съобщение до треньори", body: "Hello", url: `/admin/members?clubId=${clubId}&coachGroupId=${groupId}`,
     } });
     expect(mocks.push).toHaveBeenCalledWith(clubId, expect.any(Object), groupId);
@@ -40,6 +40,11 @@ describe("coach page messages", () => {
     mocks.push.mockResolvedValue({ sent: 0, failed: 0 });
     expect(await (await POST(request())).json()).toMatchObject({ delivered: 1, sent: 0 });
     expect(mocks.history).toHaveBeenCalledOnce();
+  });
+  it("marks the admin login with both roles as a MYTEAM7 message", async () => {
+    mocks.session.mockResolvedValue({ roles: ["admin", "coach"] });
+    expect((await POST(request())).status).toBe(200);
+    expect(mocks.history).toHaveBeenCalledWith(expect.objectContaining({ type: "myteam_message" }));
   });
   it("preserves the page message when push throws", async () => {
     mocks.push.mockRejectedValue(new Error("push unavailable"));
@@ -72,7 +77,16 @@ describe("coach page messages", () => {
     expect(mocks.push).toHaveBeenCalledTimes(2);
     expect(mocks.push).toHaveBeenCalledWith(clubId, expect.any(Object), otherId);
   });
-  it.each([{ coachGroupIds: [] }, { coachGroupIds: ["invalid"] }, { clubId: "invalid" }, { message: " " }, { message: "x".repeat(301) }])("rejects invalid input %j", async input => {
+  it("stores and sends messages longer than 300 characters without truncating them", async () => {
+    const message = "Съобщение ".repeat(100);
+    const response = await POST(request({ message }));
+    expect(response.status).toBe(200);
+    expect(mocks.history).toHaveBeenCalledWith(expect.objectContaining({
+      payload: expect.objectContaining({ body: message.trim() }),
+    }));
+    expect(mocks.push).toHaveBeenCalledWith(clubId, expect.objectContaining({ body: message.trim() }), groupId);
+  });
+  it.each([{ coachGroupIds: [] }, { coachGroupIds: ["invalid"] }, { clubId: "invalid" }, { message: " " }, { message: "" }, { message: 123 }])("rejects invalid input %j", async input => {
     expect((await POST(request(input))).status).toBe(400);
     expect(mocks.groups).not.toHaveBeenCalled();
   });

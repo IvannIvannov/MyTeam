@@ -43,9 +43,6 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "message е задължително" }, { status: 400 });
   }
   const message = raw.message.trim();
-  if (message.length > 300) {
-    return NextResponse.json({ error: "message надвишава 300 символа" }, { status: 400 });
-  }
 
   if (!Array.isArray(raw.memberIds) || raw.memberIds.length === 0) {
     return NextResponse.json({ error: "memberIds е задължително" }, { status: 400 });
