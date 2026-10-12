@@ -12,6 +12,8 @@ interface TrainingFieldConflictInput {
     type: "club" | "teamGroup" | "trainingGroup" | "customGroup" | "coachGroup";
     id?: string;
     teamGroup?: number | null;
+    sessionId?: string;
+    sessionIds?: string[];
   };
   excludeTeamGroups?: number[];
 }
@@ -19,6 +21,7 @@ interface TrainingFieldConflictInput {
 type ScheduleType = NonNullable<TrainingFieldConflictInput["exclude"]>["type"];
 
 interface ExistingSchedule {
+  sessionId?: string;
   label: string;
   type: ScheduleType;
   id?: string;
@@ -218,6 +221,8 @@ function isSameExcludedSchedule(
   if (!exclude || schedule.type !== exclude.type) {
     return false;
   }
+  if (exclude.sessionId) return schedule.sessionId === exclude.sessionId;
+  if (exclude.sessionIds) return Boolean(schedule.sessionId && exclude.sessionIds.includes(schedule.sessionId));
   if (exclude.type === "teamGroup") {
     return schedule.teamGroup === exclude.teamGroup;
   }
@@ -341,6 +346,18 @@ function getCancelledDatesForScope(cancelledSet: Set<string>, scopeKey: string, 
   return new Set(relevantDates.filter((date) => cancelledSet.has(`${scopeKey}|${date}`)));
 }
 
+async function loadCoachSessionSchedules(clubId: string, relevantDates: string[]): Promise<ExistingSchedule[]> {
+  const [sessions, groups] = await Promise.all([
+    prisma.trainingSession.findMany({ where: { clubId, scopeType: "coachGroup", status: "scheduled", trainingDate: { in: relevantDates.map((d) => new Date(`${d}T00:00:00Z`)) } } }),
+    prisma.coachGroup.findMany({ where: { clubId }, select: { id: true, name: true } }),
+  ]);
+  const names = new Map(groups.map((g) => [g.id, g.name]));
+  return sessions.map((s) => {
+    const date = s.trainingDate.toISOString().slice(0, 10);
+    return { label: `треньорска група ${names.get(s.scopeId ?? "") ?? ""}`, type: "coachGroup", id: s.scopeId ?? undefined, sessionId: s.id, scopeKey: s.scopeKey, cancelledDates: new Set<string>(), trainingDates: [date], trainingDateTimes: { [date]: s.trainingTime }, trainingDurationMinutes: s.trainingDurationMinutes, trainingFieldId: s.trainingFieldId, trainingFieldPieceIds: s.trainingFieldPieceIds, trainingFieldSelections: null };
+  });
+}
+
 async function loadSchedules(clubId: string, relevantDates: string[]): Promise<ExistingSchedule[]> {
   const [club, teamSchedules, trainingGroups, customGroups, coachGroups, cancelledSet] = await Promise.all([
     prisma.club.findUnique({
@@ -405,23 +422,7 @@ async function loadSchedules(clubId: string, relevantDates: string[]): Promise<E
         trainingFieldSelections: true,
       },
     }),
-    prisma.coachGroup.findMany({
-      where: {
-        clubId,
-        trainingDates: { hasSome: relevantDates },
-        trainingFieldId: { not: null },
-      },
-      select: {
-        id: true,
-        name: true,
-        trainingDates: true,
-        trainingDateTimes: true,
-        trainingDurationMinutes: true,
-        trainingFieldId: true,
-        trainingFieldPieceIds: true,
-        trainingFieldSelections: true,
-      },
-    }),
+    loadCoachSessionSchedules(clubId, relevantDates),
     loadCancelledSessionSet(clubId, relevantDates),
   ]);
 
@@ -491,21 +492,7 @@ async function loadSchedules(clubId: string, relevantDates: string[]): Promise<E
     });
   }
 
-  for (const group of coachGroups) {
-    schedules.push({
-      label: `треньорска група ${group.name}`,
-      type: "coachGroup",
-      id: group.id,
-      scopeKey: `coach_group:${group.id}`,
-      cancelledDates: getCancelledDatesForScope(cancelledSet, `coach_group:${group.id}`, relevantDates),
-      trainingDates: group.trainingDates,
-      trainingDateTimes: group.trainingDateTimes,
-      trainingDurationMinutes: group.trainingDurationMinutes,
-      trainingFieldId: group.trainingFieldId,
-      trainingFieldPieceIds: group.trainingFieldPieceIds,
-      trainingFieldSelections: group.trainingFieldSelections,
-    });
-  }
+  schedules.push(...coachGroups);
 
   return schedules;
 }
@@ -562,19 +549,7 @@ async function loadAllSchedules(clubId: string, relevantDates: string[]): Promis
         trainingFieldSelections: true,
       },
     }),
-    prisma.coachGroup.findMany({
-      where: { clubId, trainingDates: { hasSome: relevantDates } },
-      select: {
-        id: true,
-        name: true,
-        trainingDates: true,
-        trainingDateTimes: true,
-        trainingDurationMinutes: true,
-        trainingFieldId: true,
-        trainingFieldPieceIds: true,
-        trainingFieldSelections: true,
-      },
-    }),
+    loadCoachSessionSchedules(clubId, relevantDates),
     loadCancelledSessionSet(clubId, relevantDates),
   ]);
 
@@ -644,21 +619,7 @@ async function loadAllSchedules(clubId: string, relevantDates: string[]): Promis
     });
   }
 
-  for (const group of coachGroups) {
-    schedules.push({
-      label: `треньорска група ${group.name}`,
-      type: "coachGroup",
-      id: group.id,
-      scopeKey: `coach_group:${group.id}`,
-      cancelledDates: getCancelledDatesForScope(cancelledSet, `coach_group:${group.id}`, relevantDates),
-      trainingDates: group.trainingDates,
-      trainingDateTimes: group.trainingDateTimes,
-      trainingDurationMinutes: group.trainingDurationMinutes,
-      trainingFieldId: group.trainingFieldId,
-      trainingFieldPieceIds: group.trainingFieldPieceIds,
-      trainingFieldSelections: group.trainingFieldSelections,
-    });
-  }
+  schedules.push(...coachGroups);
 
   return schedules;
 }

@@ -72,7 +72,7 @@ export async function GET(
   } else if (excludeType === "customGroup" && excludeId) {
     exclude = { type: "customGroup", id: excludeId };
   } else if (excludeType === "coachGroup" && excludeId) {
-    exclude = { type: "coachGroup", id: excludeId };
+    exclude = { type: "coachGroup", id: excludeId, sessionId: sp.get("excludeSessionId") ?? undefined, sessionIds: sp.has("excludeSessionIds") ? (sp.get("excludeSessionIds") ?? "").split(",") : undefined };
   }
 
   try {

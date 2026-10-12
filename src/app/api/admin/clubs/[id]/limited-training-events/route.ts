@@ -3,11 +3,12 @@ import { prisma } from "@/lib/db";
 import { verifyAdminToken } from "@/lib/adminAuth";
 import { sendPushToMember } from "@/lib/push/service";
 import { buildNotificationPayload } from "@/lib/push/templates";
+import { getLimitedTrainingSessionId, setLimitedSessionAttendance } from "@/lib/limitedTrainingSession";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const VALID_SCOPE_KEY_RE = /^(team_group:\d+|custom_group:[0-9a-f-]{36}|coach_group:[0-9a-f-]{36})$/i;
+const VALID_SCOPE_KEY_RE = /^(team_group:\d+|custom_group:[0-9a-f-]{36}|coach_group:[0-9a-f-]{36}(?::session:[0-9a-f-]{36})?)$/i;
 
 function isIsoDate(v: string) {
   return /^\d{4}-\d{2}-\d{2}$/.test(v);
@@ -31,7 +32,7 @@ async function getPlayerIdsInScope(clubId: string, scopeKey: string): Promise<st
     return members.filter((m) => m.player.isActive).map((m) => m.playerId);
   }
   if (scopeKey.startsWith("coach_group:")) {
-    const groupId = scopeKey.slice("coach_group:".length);
+    const groupId = scopeKey.split(":")[1];
     const players = await prisma.player.findMany({
       where: { coachGroups: { some: { id: groupId } }, clubId, isActive: true },
       select: { id: true },
@@ -152,6 +153,8 @@ export async function POST(
     }
 
     const trainingDateUtc = new Date(trainingDate + "T00:00:00.000Z");
+    const trainingSessionId = getLimitedTrainingSessionId(scopeKey);
+    if (trainingSessionId && !await prisma.trainingSession.findFirst({ where: { id: trainingSessionId, clubId: id, scopeId: scopeKey.split(":")[1], scopeType: "coachGroup", status: "scheduled", trainingDate: trainingDateUtc }, select: { id: true } })) return NextResponse.json({ error: "Training not found" }, { status: 404 });
 
     const event = await prisma.limitedTrainingEvent.create({
       data: {
@@ -179,7 +182,7 @@ export async function POST(
     try {
       const playerIds = await getPlayerIdsInScope(id, scopeKey);
       if (playerIds.length > 0) {
-        await prisma.trainingOptOut.createMany({
+        if (!await setLimitedSessionAttendance(id, scopeKey, playerIds, false, trainingDateUtc)) await prisma.trainingOptOut.createMany({
           data: playerIds.map((playerId) => ({
             playerId,
             trainingDate: trainingDateUtc,

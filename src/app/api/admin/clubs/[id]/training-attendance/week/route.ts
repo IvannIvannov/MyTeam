@@ -199,6 +199,12 @@ export async function GET(
     }
 
     const sessions: WeekSession[] = [];
+    const [coachSessions, coachGroups] = await Promise.all([
+      prisma.trainingSession.findMany({ where: { clubId: id, scopeType: "coachGroup", status: "scheduled", trainingDate: { in: dates.map((d) => new Date(`${d}T00:00:00Z`)) } }, select: { id: true, scopeId: true, trainingDate: true, trainingTime: true, trainingDurationMinutes: true } }),
+      prisma.coachGroup.findMany({ where: { clubId: id }, select: { id: true, name: true } }),
+    ]);
+    const coachNames = new Map(coachGroups.map((g) => [g.id, g.name]));
+    for (const item of coachSessions) sessions.push({ id: `coach-${item.scopeId}-${item.id}`, date: item.trainingDate.toISOString().slice(0, 10), trainingTime: item.trainingTime, durationMinutes: item.trainingDurationMinutes, scopeType: "trainingGroup", eventType: "training", label: coachNames.get(item.scopeId ?? "") ?? "Треньорска група", teamGroups: [], limitedSpots: limitedEventByKey.get(`coach_group:${item.scopeId}:session:${item.id}|${item.trainingDate.toISOString().slice(0, 10)}`) ?? null });
 
     if (club.trainingGroupMode === "custom_group") {
       for (const date of dates) {

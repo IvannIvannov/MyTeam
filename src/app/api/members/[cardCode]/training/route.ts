@@ -6,6 +6,7 @@ import type { PushNotificationPayload } from "@/lib/push/types";
 import { publishTrainingAttendanceUpdated } from "@/lib/trainingAttendanceEvents";
 import {
   getConfiguredTrainingDates,
+  getTodayIsoDateInTimeZone,
   getWeekdayMondayFirst,
   isIsoDate,
   isoDateToUtcMidnight,
@@ -283,7 +284,7 @@ async function getMemberTrainingContext(cardCode: string) {
   const scheduledCoachGroups: CoachGroupSchedule[] = card.player.coachGroups.filter(
     (g) => g.trainingDates.length > 0 || g.trainingWeekdays.length > 0,
   );
-  const hasCoachGroupSchedule = !hasCustomGroupSchedule && scheduledCoachGroups.length > 0;
+  const hasCoachGroupSchedule = scheduledCoachGroups.length > 0;
 
   // Merge training dates and weekdays from all coach groups
   const mergedCoachDates = hasCoachGroupSchedule ? mergeScheduleDates(scheduledCoachGroups) : [];
@@ -358,7 +359,7 @@ async function getMemberTrainingContext(cardCode: string) {
     .sort((a, b) => a - b);
   const trainingWindowDays = TRAINING_SELECTION_WINDOW_DAYS;
 
-  const upcomingDates = getConfiguredTrainingDates({
+  const primaryUpcomingDates = getConfiguredTrainingDates({
     trainingDates: hasCoachGroupSchedule
       ? mergedCoachDates
       : hasCustomGroupSchedule
@@ -377,6 +378,14 @@ async function getMemberTrainingContext(cardCode: string) {
     timeZone: FIXED_TIME_ZONE,
     maxDays: TRAINING_SELECTION_WINDOW_DAYS,
   });
+  const customUpcomingDates = [...new Set(scheduledCustomGroups.flatMap((group) => getConfiguredTrainingDates({
+    trainingDates: group.trainingDates,
+    weekdays: group.trainingWeekdays,
+    windowDays: group.trainingWindowDays,
+    timeZone: FIXED_TIME_ZONE,
+    maxDays: TRAINING_SELECTION_WINDOW_DAYS,
+  })))].sort();
+  const upcomingDates = [...new Set([...primaryUpcomingDates, ...customUpcomingDates])].sort();
   const scheduleDateTimes = hasCustomGroupSchedule
     ? mergeStoredTrainingDateTimes(scheduledCustomGroups, upcomingDates)
     : normalizeStoredTrainingDateTimes(
@@ -443,6 +452,7 @@ async function getMemberTrainingContext(cardCode: string) {
     trainingWeekdays,
     trainingWindowDays,
     upcomingDates,
+    customUpcomingDates,
     trainingDateTimes: scheduleDateTimes,
     fallbackTrainingTime: scheduleFallbackTime,
     trainingDurationMinutes: scheduleDurationMinutes,
@@ -483,6 +493,10 @@ type LimitedEventComputed = {
 };
 
 type SessionItem = {
+  id?: string;
+  optedOut?: boolean;
+  optOutReasonCode?: string | null;
+  optOutReasonText?: string | null;
   scopeKey: string;
   note: string;
   trainingTime: string;
@@ -628,13 +642,19 @@ export async function GET(
         trainingDate: {
           in: trainingDatesAsUtc,
         },
-        players: {
-          some: {
-            playerId: context.playerId,
-          },
-        },
+        OR: [
+          { players: { some: { playerId: context.playerId } } },
+          { scopeType: "coachGroup", scopeId: { in: context.playerCoachGroupIds } },
+        ],
       },
       select: {
+        id: true,
+        createdAt: true,
+        scopeKey: true,
+        scopeType: true,
+        scopeId: true,
+        note: true,
+        players: { where: { playerId: context.playerId }, select: { present: true, reasonCode: true, reasonText: true } },
         trainingDate: true,
         trainingTime: true,
         trainingDurationMinutes: true,
@@ -662,7 +682,7 @@ export async function GET(
       ? prisma.limitedTrainingEvent.findMany({
           where: {
             clubId: context.clubId,
-            scopeKey: { in: uniquePlayerScopeKeys },
+            OR: [{ scopeKey: { in: uniquePlayerScopeKeys } }, ...context.playerCoachGroupIds.map((id) => ({ scopeKey: { startsWith: `coach_group:${id}:session:` } }))],
             trainingDate: { in: trainingDatesAsUtc },
           },
           select: {
@@ -754,27 +774,32 @@ export async function GET(
       const weekday = getWeekdayMondayFirst(date, FIXED_TIME_ZONE);
       const limitedEventsForDate = limitedEventsByDate.get(date) ?? [];
 
-      let sessions: SessionItem[];
+      let sessions: SessionItem[] = [];
 
       if (context.hasCoachGroupSchedule) {
-        const matchingGroups = context.scheduledCoachGroups.filter(
-          (g) =>
-            (g.trainingDates.includes(date) || g.trainingWeekdays.includes(weekday)) &&
-            !cancelledSet.has(`coach_group:${g.id}|${date}`),
-        );
-        sessions = matchingGroups.map((g) =>
-          buildGroupSession(g, `coach_group:${g.id}`, date, limitedEventsForDate, fieldById, noteByScopeDate),
-        );
-      } else if (context.hasCustomGroupSchedule) {
+        sessions = sessionRows.filter((s) => s.scopeType === "coachGroup" && utcDateToIsoDate(s.trainingDate) === date && s.scopeId && context.playerCoachGroupIds.includes(s.scopeId)).map((s) => {
+          const field = s.trainingFieldId ? fieldById.get(s.trainingFieldId) : null;
+          const attendance = s.players[0];
+          const original = sessionRows.filter((row) => row.scopeKey === s.scopeKey && utcDateToIsoDate(row.trainingDate) === date).sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())[0];
+          const limited = limitedEventsForDate.find((e) => e.scopeKey === `${s.scopeKey}:session:${s.id}`) ?? (original?.id === s.id ? limitedEventsForDate.find((e) => e.scopeKey === s.scopeKey) : null);
+          return { id: s.id, scopeKey: s.scopeKey, note: s.note ?? "", trainingTime: s.trainingTime ?? "", trainingDurationMinutes: s.trainingDurationMinutes,
+            trainingFieldName: field?.name ?? null, trainingFieldType: field?.fieldType ?? null, trainingFieldPieces: field?.pieces.map((p) => p.name) ?? [], trainingFieldPieceNames: field?.pieces.filter((p) => s.trainingFieldPieceIds.includes(p.id)).map((p) => p.name) ?? [],
+            optedOut: attendance ? !attendance.present : false, optOutReasonCode: attendance?.reasonCode ?? null, optOutReasonText: attendance?.reasonText ?? null, limitedEvent: limited ? { id: limited.id, maxSpots: limited.maxSpots, isRegistered: limited.isRegistered, isConfirmed: limited.isConfirmed, waitlistPosition: limited.waitlistPosition, spotsRemaining: limited.spotsRemaining } : null };
+        });
+      }
+      if (context.hasCustomGroupSchedule) {
         const matchingGroups = context.scheduledCustomGroups.filter(
           (g) =>
             (g.trainingDates.includes(date) || g.trainingWeekdays.includes(weekday)) &&
             !cancelledSet.has(`custom_group:${g.id}|${date}`),
         );
-        sessions = matchingGroups.map((g) =>
-          buildGroupSession(g, `custom_group:${g.id}`, date, limitedEventsForDate, fieldById, noteByScopeDate),
-        );
-      } else {
+        sessions.push(...matchingGroups.map((g) => ({
+          ...buildGroupSession(g, `custom_group:${g.id}`, date, limitedEventsForDate, fieldById, noteByScopeDate),
+          optedOut: optedOutByDate.has(date),
+          optOutReasonCode: optedOutByDate.get(date)?.reasonCode ?? null,
+          optOutReasonText: optedOutByDate.get(date)?.reasonText ?? null,
+        })));
+      } else if (!context.hasCoachGroupSchedule) {
         const singleScopeKey = context.activeScheduleScopeKey ?? (context.playerTeamGroup !== null ? `team_group:${context.playerTeamGroup}` : "club");
         if (cancelledSet.has(`${singleScopeKey}|${date}`) || cancelledSet.has(`club|${date}`)) {
           return [];
@@ -821,10 +846,10 @@ export async function GET(
       return [{
         date,
         weekday,
-        optedOut: optedOutByDate.has(date),
+        optedOut: context.hasCoachGroupSchedule ? sessions.every((s) => s.optedOut) : optedOutByDate.has(date),
         optOutReasonCode: optedOutByDate.get(date)?.reasonCode ?? null,
         optOutReasonText: optedOutByDate.get(date)?.reasonText ?? null,
-        note: noteByDate.get(date) ?? "",
+        note: context.hasCoachGroupSchedule ? sessions.filter((s) => s.note).map((s) => `${s.trainingTime} · ${s.note}`).join("\n") : noteByDate.get(date) ?? "",
         // Top-level fields kept for backward compatibility (first session's values):
         trainingTime: firstSession.trainingTime,
         trainingDurationMinutes: firstSession.trainingDurationMinutes,
@@ -839,6 +864,28 @@ export async function GET(
   });
 }
 
+async function updateMemberSessionAttendance(context: NonNullable<Awaited<ReturnType<typeof getMemberTrainingContext>>>, body: Record<string, unknown>, optedOut: boolean) {
+  const id = String(body.trainingSessionId ?? "");
+  if (!/^[0-9a-f-]{36}$/i.test(id)) return NextResponse.json({ error: "Select an individual training" }, { status: 400 });
+  const reason = optedOut ? parseOptOutReason(body.reasonCode, body.reasonText) : { code: null, text: null };
+  if ("error" in reason) return NextResponse.json({ error: reason.error }, { status: 400 });
+  const row = await prisma.trainingSession.findFirst({ where: { id, clubId: context.clubId, scopeType: "coachGroup", scopeId: { in: context.playerCoachGroupIds }, status: "scheduled", trainingDate: { gte: isoDateToUtcMidnight(getTodayIsoDateInTimeZone(FIXED_TIME_ZONE)) } } });
+  if (!row) return NextResponse.json({ error: "Training not found" }, { status: 404 });
+  const attendance = { present: !optedOut, reasonCode: reason.code, reasonText: reason.text, attendanceRecorded: true };
+  await prisma.trainingSessionPlayer.upsert({ where: { trainingSessionId_playerId: { trainingSessionId: id, playerId: context.playerId } }, update: attendance, create: { trainingSessionId: id, playerId: context.playerId, playerName: context.playerName, teamGroup: context.playerTeamGroup, ...attendance } });
+  const date = utcDateToIsoDate(row.trainingDate);
+  const coachGroupId = row.scopeId;
+  const payload = buildCoachAttendancePayload({ clubId: context.clubId, playerName: context.playerName, trainingDate: date, optedOut, optOutReasonCode: reason.code, optOutReasonText: reason.text, coachGroupId });
+  payload.body += ` · ${row.trainingTime ?? ""}`;
+  payload.tag = `training-attendance-${id}-${context.playerId}`;
+  await Promise.allSettled([
+    saveAdminNotificationHistory({ clubId: context.clubId, playerId: context.playerId, coachGroupId, type: "training_attendance", payload }),
+    sendPushToClubAdmins(context.clubId, payload, coachGroupId),
+  ]);
+  publishTrainingAttendanceUpdated(context.clubId, date);
+  return NextResponse.json({ success: true, trainingSessionId: id, optedOut });
+}
+
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ cardCode: string }> },
@@ -851,6 +898,7 @@ export async function POST(
   }
 
   const body = await request.json().catch(() => ({}));
+  if (body.trainingSessionId || (context.hasCoachGroupSchedule && !context.customUpcomingDates.includes(String(body.trainingDate ?? "")))) return updateMemberSessionAttendance(context, body, true);
   const trainingDate = String((body as { trainingDate?: unknown }).trainingDate ?? "").trim();
   const parsedReason = parseOptOutReason(
     (body as { reasonCode?: unknown }).reasonCode,
@@ -957,6 +1005,7 @@ export async function DELETE(
   }
 
   const body = await request.json().catch(() => ({}));
+  if (body.trainingSessionId || (context.hasCoachGroupSchedule && !context.customUpcomingDates.includes(String(body.trainingDate ?? "")))) return updateMemberSessionAttendance(context, body, false);
   const trainingDate = String((body as { trainingDate?: unknown }).trainingDate ?? "").trim();
 
   if (!isIsoDate(trainingDate)) {

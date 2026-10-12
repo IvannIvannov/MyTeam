@@ -5,6 +5,7 @@ import { buildNotificationPayload } from "@/lib/push/templates";
 import { sendPushToMember } from "@/lib/push/service";
 import { publishMemberUpdated } from "@/lib/memberEvents";
 import { publishTrainingAttendanceUpdated } from "@/lib/trainingAttendanceEvents";
+import { setLimitedSessionAttendance } from "@/lib/limitedTrainingSession";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -27,7 +28,7 @@ async function getPlayerIdsInScope(clubId: string, scopeKey: string): Promise<st
     return members.filter((m) => m.player.isActive).map((m) => m.playerId);
   }
   if (scopeKey.startsWith("coach_group:")) {
-    const groupId = scopeKey.slice("coach_group:".length);
+    const groupId = scopeKey.split(":")[1];
     const players = await prisma.player.findMany({
       where: { coachGroups: { some: { id: groupId } }, clubId, isActive: true },
       select: { id: true },
@@ -167,7 +168,7 @@ export async function PATCH(
       // They are at 0-based indices [oldMaxSpots, min(newMaxSpots, total) - 1]
       const newlyConfirmed = allRegs.slice(oldMaxSpots, maxSpots);
       for (const reg of newlyConfirmed) {
-        await prisma.trainingOptOut.deleteMany({
+        if (!await setLimitedSessionAttendance(id, updated.scopeKey, [reg.playerId], true, trainingDateUtc)) await prisma.trainingOptOut.deleteMany({
           where: { playerId: reg.playerId, trainingDate: trainingDateUtc, reasonCode: "limited_event" },
         });
         const cardCode = reg.player.cards[0]?.cardCode;
@@ -190,7 +191,7 @@ export async function PATCH(
       // They are at 0-based indices [newMaxSpots, min(oldMaxSpots, total) - 1]
       const newlyWaitlisted = allRegs.slice(maxSpots, oldMaxSpots);
       for (const reg of newlyWaitlisted) {
-        await prisma.trainingOptOut.upsert({
+        if (!await setLimitedSessionAttendance(id, updated.scopeKey, [reg.playerId], false, trainingDateUtc)) await prisma.trainingOptOut.upsert({
           where: { playerId_trainingDate: { playerId: reg.playerId, trainingDate: trainingDateUtc } },
           create: { playerId: reg.playerId, trainingDate: trainingDateUtc, reasonCode: "limited_event" },
           update: {},
@@ -256,7 +257,7 @@ export async function DELETE(
     try {
       const playerIds = await getPlayerIdsInScope(id, existing.scopeKey);
       if (playerIds.length > 0) {
-        await prisma.trainingOptOut.deleteMany({
+        if (!await setLimitedSessionAttendance(id, existing.scopeKey, playerIds, true, existing.trainingDate)) await prisma.trainingOptOut.deleteMany({
           where: {
             playerId: { in: playerIds },
             trainingDate: existing.trainingDate,

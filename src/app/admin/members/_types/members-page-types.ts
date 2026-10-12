@@ -105,6 +105,8 @@ interface TrainingAttendancePlayer {
 }
 
 interface TrainingUpcomingDateItem {
+  trainingCount?: number;
+  sessions?: { id: string; trainingTime: string | null; trainingDurationMinutes: number }[];
   date: string;
   weekday: number;
   trainingTime?: string | null;

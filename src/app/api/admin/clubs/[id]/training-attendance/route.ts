@@ -168,6 +168,35 @@ export async function GET(
   }
 
   const { id } = await params;
+  const trainingSessionId = request.nextUrl.searchParams.get("trainingSessionId");
+  const coachGroupId = request.nextUrl.searchParams.get("coachGroupId");
+  if (trainingSessionId || coachGroupId) {
+    if ([trainingSessionId, coachGroupId].some((value) => value && !/^[0-9a-f-]{36}$/i.test(value))) return NextResponse.json({ error: "Invalid session or coach group" }, { status: 400 });
+    const include = { players: { include: { player: { select: { cards: { where: { isActive: true }, take: 1, select: { cardCode: true } } } } } } };
+    const selected = trainingSessionId ? await prisma.trainingSession.findFirst({ where: { id: trainingSessionId, clubId: id, scopeType: "coachGroup", ...(coachGroupId ? { scopeId: coachGroupId } : {}) }, include }) : null;
+    if (trainingSessionId && !selected) return NextResponse.json({ error: "Training not found" }, { status: 404 });
+    const scopeId = selected?.scopeId ?? coachGroupId;
+    const month = parseMonthKey(request.nextUrl.searchParams.get("month"), selected ? utcDateToIsoDate(selected.trainingDate) : getTodayIsoDateInTimeZone(FIXED_TIME_ZONE));
+    const dates = getDatesInMonth(month);
+    if (!dates.length) return NextResponse.json({ error: "Invalid month" }, { status: 400 });
+    const rows = await prisma.trainingSession.findMany({ where: { clubId: id, scopeType: "coachGroup", scopeId, status: "scheduled", trainingDate: { in: dates.map(isoDateToUtcMidnight) } }, include, orderBy: [{ trainingDate: "asc" }, { trainingTime: "asc" }, { id: "asc" }] });
+    const attendanceStats = (players: { playerId: string | null; present: boolean }[]) => {
+      const roster = players.filter((player) => player.playerId);
+      const attending = roster.filter((player) => player.present).length;
+      return { total: roster.length, attending, optedOut: roster.length - attending };
+    };
+    const upcomingDates = [...new Set(rows.map((row) => utcDateToIsoDate(row.trainingDate)))].sort().map((date) => {
+      const sessions = rows.filter((row) => utcDateToIsoDate(row.trainingDate) === date).map((row) => ({ id: row.id, trainingTime: row.trainingTime, trainingDurationMinutes: row.trainingDurationMinutes, stats: attendanceStats(row.players) }));
+      const stats = sessions.reduce((sum, session) => ({ total: sum.total + session.stats.total, attending: sum.attending + session.stats.attending, optedOut: sum.optedOut + session.stats.optedOut }), { total: 0, attending: 0, optedOut: 0 });
+      return { date, weekday: getWeekdayMondayFirst(date, FIXED_TIME_ZONE), trainingTime: sessions[0]?.trainingTime ?? null, stats, sessions };
+    });
+    const requestedDate = request.nextUrl.searchParams.get("date");
+    const row = selected ?? rows.find((entry) => utcDateToIsoDate(entry.trainingDate) === requestedDate) ?? rows[0];
+    if (!row) return NextResponse.json({ coachGroupId: scopeId, trainingDate: "", players: [], stats: { total: 0, attending: 0, optedOut: 0 }, upcomingDates });
+    const field = row.trainingFieldId ? await prisma.field.findFirst({ where: { id: row.trainingFieldId, clubId: id }, select: { id: true, name: true, fieldType: true, pieces: { select: { id: true, name: true }, orderBy: { sortOrder: "asc" } } } }) : null;
+    const players = row.players.filter((p) => p.playerId).map((p) => ({ id: p.playerId, fullName: p.playerName, teamGroup: p.teamGroup, cardCode: p.player?.cards[0]?.cardCode ?? null, optedOut: !p.present }));
+    return NextResponse.json({ coachGroupId: scopeId, trainingSessionId: row.id, trainingDate: utcDateToIsoDate(row.trainingDate), trainingTime: row.trainingTime, trainingDurationMinutes: row.trainingDurationMinutes, trainingField: field, trainingFieldPieceIds: row.trainingFieldPieceIds, sessionStatus: row.status, note: row.note ?? "", players, stats: attendanceStats(row.players), upcomingDates });
+  }
   const requestedDate = request.nextUrl.searchParams.get("date")?.trim() ?? "";
   const requestedMonth = request.nextUrl.searchParams.get("month");
   const monthKey = parseMonthKey(requestedMonth, requestedDate || getTodayIsoDateInTimeZone(FIXED_TIME_ZONE));
@@ -596,6 +625,16 @@ export async function PUT(
   const trainingDate = String((body as { trainingDate?: unknown }).trainingDate ?? "").trim();
   const noteRaw = (body as { note?: unknown }).note;
   const note = noteRaw === null || noteRaw === undefined ? "" : String(noteRaw).trim();
+  if (body.trainingSessionId) {
+    const row = await prisma.trainingSession.findFirst({ where: { id: String(body.trainingSessionId), clubId: id, scopeType: "coachGroup" }, select: { id: true, scopeId: true, trainingDate: true } });
+    if (!row) return NextResponse.json({ error: "Training not found" }, { status: 404 });
+    await prisma.$transaction(async (tx) => {
+      await tx.trainingSession.update({ where: { id: row.id }, data: { note: note || null } });
+      if (row.scopeId) await tx.coachGroup.update({ where: { id: row.scopeId }, data: { updatedAt: new Date() } });
+    });
+    publishTrainingAttendanceUpdated(id, utcDateToIsoDate(row.trainingDate));
+    return NextResponse.json({ success: true });
+  }
   let teamGroup: number | null = null;
   let trainingGroupId: string | null = null;
   let customTrainingGroupId: string | null = null;
@@ -764,6 +803,13 @@ export async function PATCH(
   const playerId = String((body as { playerId?: unknown }).playerId ?? "").trim();
   const trainingDate = String((body as { trainingDate?: unknown }).trainingDate ?? "").trim();
   const optedOut = (body as { optedOut?: unknown }).optedOut;
+  if (body.trainingSessionId) {
+    if (typeof optedOut !== "boolean" || !playerId || !/^[0-9a-f-]{36}$/i.test(String(body.trainingSessionId))) return NextResponse.json({ error: "Invalid attendance" }, { status: 400 });
+    const result = await prisma.trainingSessionPlayer.updateMany({ where: { playerId, trainingSessionId: String(body.trainingSessionId), trainingSession: { clubId, status: "scheduled" } }, data: { present: !optedOut, attendanceRecorded: true, reasonCode: optedOut ? "other" : null, reasonText: optedOut ? "Промяна направена от треньор" : null } });
+    if (!result.count) return NextResponse.json({ error: "Training or player not found" }, { status: 404 });
+    publishTrainingAttendanceUpdated(clubId, trainingDate);
+    return NextResponse.json({ success: true });
+  }
 
   if (!playerId) {
     return NextResponse.json({ error: "Missing playerId" }, { status: 400 });

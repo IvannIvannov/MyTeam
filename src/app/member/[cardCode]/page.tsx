@@ -1,8 +1,10 @@
 ﻿"use client";
+import { getTrainingCountdownCandidates, getTrainingDateTimeMs } from "@/lib/memberScheduleCountdown";
 
 import { use, useEffect, useRef, useState, type CSSProperties } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { NotificationText } from "@/components/NotificationText";
+import MemberTrainingSessions from "@/components/MemberTrainingSessions";
 import { uploadImage } from "@/lib/uploadImage";
 import { extractUploadPathFromCloudinaryUrl } from "@/lib/cloudinaryImagePath";
 import { getCompatiblePushSubscription } from "@/lib/push/browser";
@@ -71,6 +73,10 @@ interface LimitedEventInfo {
 }
 
 interface TrainingSessionItem {
+  id?: string;
+  optedOut?: boolean;
+  optOutReasonCode?: string | null;
+  optOutReasonText?: string | null;
   scopeKey: string;
   note?: string;
   trainingTime?: string;
@@ -324,15 +330,6 @@ function formatMonthYearInBgUtc(value: string): string {
   return text.charAt(0).toUpperCase() + text.slice(1);
 }
 
-function getTrainingDateTimeMs(dateIso: string, trainingTime?: string): number {
-  const normalizedTime =
-    typeof trainingTime === "string" && /^([01]\d|2[0-3]):([0-5]\d)$/.test(trainingTime.trim())
-      ? trainingTime.trim()
-      : "00:00";
-  const parsed = new Date(`${dateIso}T${normalizedTime}:00`);
-  return parsed.getTime();
-}
-
 function formatTrainingDuration(minutes?: number): string {
   if (!Number.isInteger(minutes) || !minutes || minutes < 1) {
     return "";
@@ -544,14 +541,7 @@ export default function MemberCardPage({
   const trainingMonths = [buildTrainingCalendarMonth(trainingCalendarMonth.year, trainingCalendarMonth.month)];
   const nextScheduleEvent =
     [
-      ...trainingDaysSorted
-        .filter((item) => !item.optedOut)
-        .map((item) => ({
-          type: "training" as const,
-          date: item.date,
-          time: item.trainingTime?.trim() || null,
-          targetMs: getTrainingDateTimeMs(item.date, item.trainingTime),
-        })),
+      ...getTrainingCountdownCandidates(trainingDaysSorted),
       ...memberMatches.map((match) => ({
         type: "match" as const,
         date: match.matchDate,
@@ -807,6 +797,10 @@ export default function MemberCardPage({
                 return (rawSessions as unknown[]).map((s) => {
                   const rs = typeof s === "object" && s !== null ? (s as Record<string, unknown>) : {};
                   return {
+                    id: typeof rs.id === "string" ? rs.id : undefined,
+                    optedOut: Boolean(rs.optedOut),
+                    optOutReasonCode: typeof rs.optOutReasonCode === "string" ? rs.optOutReasonCode : null,
+                    optOutReasonText: typeof rs.optOutReasonText === "string" ? rs.optOutReasonText : null,
                     scopeKey: String(rs.scopeKey ?? ""),
                     note: String(rs.note ?? "").trim(),
                     trainingTime: String(rs.trainingTime ?? "").trim(),
@@ -2971,6 +2965,9 @@ export default function MemberCardPage({
                         </div>
                       )}
                       {trainingDayPopupTab === "training" ? (
+                        trainingDetailsItem.sessions.some((s) => s.id) ? (
+                          <MemberTrainingSessions key={trainingDetailsItem.date} date={trainingDetailsItem.date} sessions={trainingDetailsItem.sessions} cardCode={normalizedCardCode} onUpdated={fetchTrainingDays} />
+                        ) : (
                         <>
                           <div className="training-attendance-info-card">
                             <div className="training-attendance-info-row">
@@ -3350,6 +3347,7 @@ export default function MemberCardPage({
                             </>
                           ) : null}
                         </>
+                        )
                       ) : (
                         <div className="member-day-match-panel">
                           {trainingDetailsMatches.map((match) => (

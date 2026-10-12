@@ -1966,6 +1966,11 @@
 .amp-training-day-number {
   font-size: 10px;
   font-weight: 700;
+  line-height: 1;
+}
+
+.amp-training-day-number + .amp-training-day-meta {
+  margin-top: -1px;
 }
 
 .amp-training-day-time {
