@@ -8,6 +8,7 @@ import { saveAdminNotificationHistory } from "@/lib/push/adminHistory";
 import { buildNotificationPayload } from "@/lib/push/templates";
 import type { PushNotificationPayload } from "@/lib/push/types";
 import { isIsoDate } from "@/lib/training";
+import { resolveLimitedTrainingSessionId, setLimitedSessionAttendance } from "@/lib/limitedTrainingSession";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -104,7 +105,7 @@ async function resolvePlayer(cardCode: string) {
 
 async function resolvePushCoachGroupId(scopeKey: string): Promise<string | null> {
   if (scopeKey.startsWith("coach_group:")) {
-    return scopeKey.slice("coach_group:".length);
+    return scopeKey.split(":")[1];
   }
   if (scopeKey.startsWith("custom_group:")) {
     const groupId = scopeKey.slice("custom_group:".length);
@@ -130,7 +131,7 @@ function isPlayerInScope(
     return player.customGroupIds.includes(cgId);
   }
   if (scopeKey.startsWith("coach_group:")) {
-    const coachGId = scopeKey.slice("coach_group:".length);
+    const coachGId = scopeKey.split(":")[1];
     return player.coachGroupIds.includes(coachGId);
   }
   return false;
@@ -184,6 +185,8 @@ export async function POST(
   if (!isPlayerInScope(player, event.scopeKey)) {
     return NextResponse.json({ error: "Player is not in the scope of this event" }, { status: 403 });
   }
+  const trainingSessionId = await resolveLimitedTrainingSessionId(player.clubId, event.scopeKey, new Date(`${trainingDate}T00:00:00Z`));
+  if (trainingSessionId && !await prisma.trainingSession.findFirst({ where: { id: trainingSessionId, clubId: player.clubId, status: "scheduled", trainingDate: new Date(`${trainingDate}T00:00:00Z`) }, select: { id: true } })) return NextResponse.json({ error: "Training is cancelled or unavailable" }, { status: 404 });
 
   // Check if already registered (idempotent)
   const existing = await prisma.limitedTrainingRegistration.findFirst({
@@ -210,7 +213,8 @@ export async function POST(
   const isConfirmed = position <= event.maxSpots;
   const waitlistPosition = isConfirmed ? null : position - event.maxSpots;
 
-  if (isConfirmed) {
+  const sessionAttendanceHandled = await setLimitedSessionAttendance(player.clubId, event.scopeKey, [player.playerId], isConfirmed, new Date(`${trainingDate}T00:00:00Z`));
+  if (isConfirmed && !sessionAttendanceHandled) {
     // Remove the auto-created opt-out so the player shows as attending
     await prisma.trainingOptOut.deleteMany({
       where: {
@@ -325,7 +329,7 @@ export async function DELETE(
   });
 
   // Restore the opt-out so the canceller is back to absent
-  await prisma.trainingOptOut.upsert({
+  if (!await setLimitedSessionAttendance(player.clubId, event.scopeKey, [player.playerId], false, trainingDateUtc)) await prisma.trainingOptOut.upsert({
     where: { playerId_trainingDate: { playerId: player.playerId, trainingDate: trainingDateUtc } },
     create: { playerId: player.playerId, trainingDate: trainingDateUtc, reasonCode: "limited_event" },
     update: {},
@@ -333,7 +337,7 @@ export async function DELETE(
 
   // Promote the first waitlisted player now that a confirmed spot opened up
   if (firstWaitlistedPlayerId) {
-    await prisma.trainingOptOut.deleteMany({
+    if (!await setLimitedSessionAttendance(player.clubId, event.scopeKey, [firstWaitlistedPlayerId], true, trainingDateUtc)) await prisma.trainingOptOut.deleteMany({
       where: { playerId: firstWaitlistedPlayerId, trainingDate: trainingDateUtc, reasonCode: "limited_event" },
     });
     const promotedData = await prisma.player.findUnique({

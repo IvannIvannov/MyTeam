@@ -189,6 +189,7 @@ model CoachGroup {
   trainingFieldPieceIds   String[]                @default([]) @map("training_field_piece_ids") @db.Uuid
   trainingFieldSelections Json?                   @map("training_field_selections")
   trainingWindowDays      Int                     @default(30) @map("training_window_days")
+  trainingRecurrences     Json?                   @map("training_recurrences")
   createdAt               DateTime                @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt               DateTime                @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
   club                    Club                    @relation(fields: [clubId], references: [id], onDelete: Cascade)
@@ -345,12 +346,16 @@ model TrainingSession {
   trainingFieldId         String?  @map("training_field_id") @db.Uuid
   trainingFieldPieceIds   String[] @default([]) @map("training_field_piece_ids") @db.Uuid
   status                  String   @default("scheduled")
+  occurrenceKey           String   @default("") @map("occurrence_key")
+  recurrenceId            String?  @map("recurrence_id") @db.Uuid
+  recurrenceDate          DateTime? @map("recurrence_date") @db.Date
+  note                    String?
   createdAt               DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt               DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
   club                    Club     @relation(fields: [clubId], references: [id], onDelete: Cascade)
   players                 TrainingSessionPlayer[]
 
-  @@unique([clubId, scopeKey, trainingDate])
+  @@unique([clubId, scopeKey, trainingDate, occurrenceKey], name: "clubId_scopeKey_trainingDate", map: "training_sessions_scope_date_occurrence_key")
   @@index([clubId, trainingDate])
   @@index([clubId, scopeKey, trainingDate])
   @@map("training_sessions")
@@ -363,6 +368,7 @@ model TrainingSessionPlayer {
   playerName        String          @map("player_name")
   teamGroup         Int?            @map("team_group")
   present           Boolean         @default(true)
+  attendanceRecorded Boolean        @default(false) @map("attendance_recorded")
   reasonCode        String?         @map("reason_code")
   reasonText        String?         @map("reason_text")
   createdAt         DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)

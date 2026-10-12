@@ -1,343 +1,118 @@
 import { NextRequest, NextResponse } from "next/server";
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { verifyAdminToken } from "@/lib/adminAuth";
-import {
-  getConfiguredTrainingDates,
-  getTodayIsoDateInTimeZone,
-  isIsoDate,
-  isoDateToUtcMidnight,
-  normalizeTrainingDurationMinutes,
-  normalizeTrainingTime,
-} from "@/lib/training";
-import { assertNoTrainingFieldConflict, assertNoTrainingTimeConflict } from "@/lib/trainingFieldConflicts";
-import {
-  clubHasTrainingFields,
-  normalizeStoredTrainingFieldSelections,
-  parseTrainingFieldSelection,
-  parseTrainingFieldSelectionsByDate,
-  verifyTrainingFieldSelectionsByDate,
-} from "@/lib/trainingFields";
-import { filterCancelledTrainingDatesForScope, syncFutureTrainingSessions } from "@/lib/trainingSessions";
+import { coachTrainingsConflict, expandCoachRecurrences, parseCoachRecurrences, parseCoachTraining, readCoachTrainings, writeCoachTrainings } from "@/lib/coachTrainingSchedule";
+import { assertNoTrainingFieldConflict } from "@/lib/trainingFieldConflicts";
+import { clubHasTrainingFields, verifyTrainingFieldSelection } from "@/lib/trainingFields";
+import { getTodayIsoDateInTimeZone, isoDateToUtcMidnight } from "@/lib/training";
+import { notifyCoachTrainingChanges } from "@/lib/push/coachTrainingNotifications";
+import { publishTrainingAttendanceUpdated } from "@/lib/trainingAttendanceEvents";
+import { applyCoachTrainingLimits, parseCoachTrainingLimits } from "@/lib/coachTrainingLimits";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-
-const FIXED_TIME_ZONE = "Europe/Sofia";
-const TRAINING_SELECTION_WINDOW_DAYS = 30;
-const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-
-async function verifySession(request: NextRequest) {
+type Context = { params: Promise<{ id: string; groupId: string }> };
+const uuid = /^[0-9a-f-]{36}$/i;
+async function getGroup(request: NextRequest, context: Context) {
   const token = request.cookies.get("admin_session")?.value;
-  return token ? await verifyAdminToken(token) : null;
+  const session = token ? await verifyAdminToken(token) : null;
+  if (!session) return null;
+  const { id: clubId, groupId } = await context.params;
+  if (!uuid.test(clubId) || !uuid.test(groupId)) return null;
+  return prisma.coachGroup.findFirst({ where: { id: groupId, clubId } });
 }
 
-function normalizeStoredTrainingDateTimes(raw: unknown, trainingDates: string[]): Record<string, string> {
-  if (!raw || typeof raw !== "object") return {};
-  const source = raw as Record<string, unknown>;
-  const allowedDates = new Set(trainingDates);
-  const result: Record<string, string> = {};
-  for (const [date, value] of Object.entries(source)) {
-    if (!allowedDates.has(date)) continue;
-    const time = typeof value === "string" ? value.trim() : "";
-    const normalized = normalizeTrainingTime(time);
-    if (normalized) result[date] = normalized;
-  }
-  return result;
+export async function GET(request: NextRequest, context: Context) {
+  const group = await getGroup(request, context);
+  if (!group) return NextResponse.json({ error: "Нямате достъп или групата не съществува." }, { status: 404 });
+  const [trainings, fields, events] = await Promise.all([
+    readCoachTrainings(group.clubId, group.id),
+    prisma.field.findMany({ where: { clubId: group.clubId }, include: { pieces: { orderBy: { sortOrder: "asc" } } } }),
+    prisma.limitedTrainingEvent.findMany({ where: { clubId: group.clubId, OR: [{ scopeKey: `coach_group:${group.id}` }, { scopeKey: { startsWith: `coach_group:${group.id}:session:` } }] }, select: { id: true, scopeKey: true, trainingDate: true, maxSpots: true } }),
+  ]);
+  const limitedEvents = events.map((e) => {
+    const date = e.trainingDate.toISOString().slice(0, 10);
+    const original = trainings.filter((t) => t.date === date).sort((a, b) => a.createdAt.localeCompare(b.createdAt))[0];
+    return { ...e, trainingDate: date, scopeKey: e.scopeKey === `coach_group:${group.id}` && original ? `${e.scopeKey}:session:${original.id}` : e.scopeKey };
+  });
+  return NextResponse.json({ trainings, limitedEvents, recurrences: group.trainingRecurrences ?? [], fields, version: group.updatedAt.toISOString(), trainingDates: group.trainingDates, trainingDateTimes: group.trainingDateTimes, trainingWindowDays: 30 });
 }
 
-function buildTrainingDateTimes(input: {
-  rawTrainingDateTimes: unknown;
-  trainingDates: string[];
-  fallbackTrainingTime: string | null;
-}) {
-  const allowedDates = new Set(input.trainingDates);
-  const result: Record<string, string> = {};
-  if (
-    input.rawTrainingDateTimes &&
-    typeof input.rawTrainingDateTimes === "object" &&
-    !Array.isArray(input.rawTrainingDateTimes)
-  ) {
-    for (const [date, value] of Object.entries(input.rawTrainingDateTimes as Record<string, unknown>)) {
-      if (!allowedDates.has(date)) {
-        throw new Error("Training date times contain date outside selected training days.");
-      }
-      const normalized = normalizeTrainingTime(value);
-      if (!normalized) throw new Error("Training time is required for each selected day.");
-      result[date] = normalized;
-    }
-  }
-  if (Object.keys(result).length === 0 && input.fallbackTrainingTime) {
-    for (const date of input.trainingDates) result[date] = input.fallbackTrainingTime;
-  }
-  for (const date of input.trainingDates) {
-    if (!result[date]) throw new Error("Training time is required for each selected day.");
-  }
-  return result;
-}
-
-export async function GET(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string; groupId: string }> },
-) {
-  const session = await verifySession(request);
-  if (!session) {
-    return NextResponse.json({ error: "Нямате достъп." }, { status: 401 });
-  }
-
-  const { id: clubId, groupId } = await params;
-  if (!UUID_REGEX.test(clubId) || !UUID_REGEX.test(groupId)) {
-    return NextResponse.json({ error: "Coach group not found" }, { status: 404 });
-  }
-
-  const row = await prisma.coachGroup.findFirst({
-    where: { id: groupId, clubId },
-    select: {
-      trainingDates: true,
-      trainingDateTimes: true,
-      trainingTime: true,
-      trainingDurationMinutes: true,
-      trainingFieldId: true,
-      trainingFieldPieceIds: true,
-      trainingFieldSelections: true,
-      trainingWeekdays: true,
-      trainingWindowDays: true,
-    },
-  });
-
-  if (!row) {
-    return NextResponse.json({ error: "Coach group not found" }, { status: 404 });
-  }
-
-  const configuredDates = getConfiguredTrainingDates({
-    trainingDates: row.trainingDates,
-    weekdays: row.trainingWeekdays.filter((v) => v >= 1 && v <= 7).sort((a, b) => a - b),
-    windowDays: row.trainingWindowDays,
-    timeZone: FIXED_TIME_ZONE,
-    maxDays: TRAINING_SELECTION_WINDOW_DAYS,
-  });
-  const resolvedDates = await filterCancelledTrainingDatesForScope({
-    clubId,
-    scope: { type: "coachGroup", id: groupId },
-    trainingDates: configuredDates,
-  });
-
-  const resolvedDateTimes = normalizeStoredTrainingDateTimes(row.trainingDateTimes, resolvedDates);
-  const hasSchedule = row.trainingDates.length > 0 || row.trainingWeekdays.length > 0;
-
-  return NextResponse.json({
-    trainingDates: resolvedDates,
-    trainingTime: row.trainingTime ?? null,
-    trainingDurationMinutes: row.trainingDurationMinutes,
-    trainingFieldId: row.trainingFieldId,
-    trainingFieldPieceIds: row.trainingFieldPieceIds,
-    trainingFieldSelections: normalizeStoredTrainingFieldSelections(
-      row.trainingFieldSelections,
-      resolvedDates,
-      { trainingFieldId: row.trainingFieldId, trainingFieldPieceIds: row.trainingFieldPieceIds ?? [] },
-    ),
-    trainingDateTimes: resolvedDateTimes,
-    trainingWeekdays: row.trainingWeekdays,
-    trainingWindowDays: row.trainingWindowDays,
-    hasSchedule,
-  });
-}
-
-export async function PUT(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string; groupId: string }> },
-) {
-  const session = await verifySession(request);
-  if (!session) {
-    return NextResponse.json({ error: "Нямате достъп." }, { status: 401 });
-  }
-
-  const { id: clubId, groupId } = await params;
-  if (!UUID_REGEX.test(clubId) || !UUID_REGEX.test(groupId)) {
-    return NextResponse.json({ error: "Coach group not found" }, { status: 404 });
-  }
-
-  let body: unknown;
+export async function PUT(request: NextRequest, context: Context) {
+  const group = await getGroup(request, context);
+  if (!group) return NextResponse.json({ error: "Нямате достъп или групата не съществува." }, { status: 404 });
   try {
-    body = await request.json();
-  } catch {
-    return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
-  }
-
-  const rawTrainingDates = (body as { trainingDates?: unknown }).trainingDates;
-  const rawTrainingTime = (body as { trainingTime?: unknown }).trainingTime;
-  const rawTrainingDateTimes = (body as { trainingDateTimes?: unknown }).trainingDateTimes;
-  const rawTrainingDurationMinutes = (body as { trainingDurationMinutes?: unknown }).trainingDurationMinutes;
-  const rawTrainingFieldId = (body as { trainingFieldId?: unknown }).trainingFieldId;
-  const rawTrainingFieldPieceId = (body as { trainingFieldPieceIds?: unknown }).trainingFieldPieceIds;
-  const rawTrainingFieldSelections = (body as { trainingFieldSelections?: unknown }).trainingFieldSelections;
-  const rawWeekdays = (body as { trainingWeekdays?: unknown }).trainingWeekdays;
-  const rawWindowDays = (body as { trainingWindowDays?: unknown }).trainingWindowDays;
-
-  let trainingTime: string | null = null;
-  let trainingDurationMinutes = 60;
-  let trainingFieldSelection = { trainingFieldId: null as string | null, trainingFieldPieceIds: [] as string[] };
-  try {
-    trainingTime = normalizeTrainingTime(rawTrainingTime);
-    trainingDurationMinutes = normalizeTrainingDurationMinutes(rawTrainingDurationMinutes);
-    trainingFieldSelection = parseTrainingFieldSelection({
-      trainingFieldId: rawTrainingFieldId,
-      trainingFieldPieceIds: rawTrainingFieldPieceId,
+    const body = await request.json();
+    if (!Array.isArray(body.trainings)) throw new Error("Trainings must be an array");
+    if (body.version !== group.updatedAt.toISOString()) return NextResponse.json({ error: "Графикът е променен. Затворете и отворете отново, за да заредите актуалните тренировки." }, { status: 409 });
+    const previous = await readCoachTrainings(group.clubId, group.id);
+    const today = getTodayIsoDateInTimeZone("Europe/Sofia");
+    const storedRecurrences = parseCoachRecurrences(group.trainingRecurrences ?? []);
+    const recurrences = parseCoachRecurrences(body.recurrences ?? []).map((rule) => {
+      const excludedDates = [...new Set([...(rule.excludedDates ?? []), ...(storedRecurrences.find((stored) => stored.id === rule.id)?.excludedDates ?? [])])];
+      return { ...rule, ...(excludedDates.length ? { excludedDates } : {}) };
     });
-  } catch {
-    return NextResponse.json({ error: "Invalid trainingTime, trainingDurationMinutes, or training field" }, { status: 400 });
-  }
-
-  let trainingDates: string[] = [];
-  let trainingWeekdays: number[] = [];
-  let trainingWindowDays = TRAINING_SELECTION_WINDOW_DAYS;
-
-  if (Array.isArray(rawTrainingDates)) {
-    const todayIso = getTodayIsoDateInTimeZone(FIXED_TIME_ZONE);
-    const start = isoDateToUtcMidnight(todayIso).getTime();
-    const end = start + (TRAINING_SELECTION_WINDOW_DAYS - 1) * 24 * 60 * 60 * 1000;
-
-    for (const value of rawTrainingDates) {
-      const date = String(value ?? "").trim();
-      if (!isIsoDate(date)) {
-        return NextResponse.json({ error: "Training dates must be valid ISO dates." }, { status: 400 });
+    const limits = parseCoachTrainingLimits(body.limits ?? []);
+    if (new Set(recurrences.map((r) => r.id)).size !== recurrences.length) throw new Error("Duplicate recurring time");
+    const explicit = body.trainings.map(parseCoachTraining);
+    if (explicit.some((item: { id: string; status: string }) => item.status === "scheduled" && previous.some((stored) => stored.id === item.id && stored.status === "cancelled"))) throw new Error("Training restoration is disabled");
+    // Explicit edits override generated occurrences by ID, including cancellations.
+    const generated = expandCoachRecurrences(recurrences, [...explicit, ...previous], today);
+    const byId = new Map(generated.map((t) => [t.id, t]));
+    if (new Set(explicit.map((t: { id: string }) => t.id)).size !== explicit.length) throw new Error("Duplicate training ID");
+    for (const item of explicit) byId.set(item.id, item);
+    const trainings = [...byId.values()];
+    for (const limit of limits) if (limit.sessionId ? !trainings.some((t) => t.id === limit.sessionId) : !recurrences.some((r) => r.id === limit.recurrenceId)) throw new Error("Place limit does not belong to this schedule");
+    const recurringSlots = new Set<string>();
+    for (const item of trainings) if (item.recurrenceId) {
+      if (recurrences.find((rule) => rule.id === item.recurrenceId)?.excludedDates?.includes(item.recurrenceDate ?? item.date)) throw new Error("This recurring training was permanently deleted");
+      if (!recurrences.some((r) => r.id === item.recurrenceId)) {
+        if (item.status === "cancelled" && previous.some((t) => t.id === item.id && t.status === "cancelled" && t.recurrenceId === item.recurrenceId)) continue;
+        throw new Error("Training references an unknown recurring time");
       }
-      const timestamp = isoDateToUtcMidnight(date).getTime();
-      if (timestamp < start || timestamp > end) {
-        return NextResponse.json(
-          { error: `Training dates must be within the next ${TRAINING_SELECTION_WINDOW_DAYS} days.` },
-          { status: 400 },
-        );
+      const slot = `${item.recurrenceId}|${item.recurrenceDate ?? item.date}`;
+      if (recurringSlots.has(slot)) throw new Error("Duplicate recurring occurrence");
+      recurringSlots.add(slot);
+    }
+    const upper = isoDateToUtcMidnight(today).getTime() + 29 * 86400000;
+    const hasFields = await clubHasTrainingFields(group.clubId);
+    for (let i = 0; i < trainings.length; i++) {
+      const item = trainings[i];
+      if (item.date < today || isoDateToUtcMidnight(item.date).getTime() > upper) throw new Error("Training dates must be within the next 30 days");
+      if (hasFields && !item.trainingFieldId) throw new Error("Изберете терен за всяка тренировка.");
+      await verifyTrainingFieldSelection(group.clubId, item);
+      for (let j = 0; j < i; j++) if (coachTrainingsConflict(item, trainings[j])) throw new Error(`Теренът е зает на ${item.date} от ${trainings[j].trainingTime}.`);
+      if (item.status !== "cancelled") await assertNoTrainingFieldConflict({ clubId: group.clubId, trainingDates: [item.date], trainingDateTimes: { [item.date]: item.trainingTime }, ...item, exclude: { type: "coachGroup", id: group.id } });
+    }
+    const owned = new Set(previous.map((t) => t.id));
+    const foreign = await prisma.trainingSession.count({ where: { id: { in: trainings.filter((t) => !owned.has(t.id)).map((t) => t.id) } } });
+    if (foreign) throw new Error("Training does not belong to this group");
+    const savedGroup = await prisma.$transaction(async (tx) => {
+      // Serialize saves per club, including field validation, to avoid double bookings.
+      await tx.$queryRaw`SELECT id FROM clubs WHERE id = ${group.clubId}::uuid FOR UPDATE`;
+      const latest = await tx.coachGroup.findUnique({ where: { id: group.id }, select: { updatedAt: true } });
+      if (!latest || latest.updatedAt.toISOString() !== body.version) throw new Error("Графикът е променен. Заредете го отново.");
+      const legacyEvents = await tx.limitedTrainingEvent.findMany({ where: { clubId: group.clubId, scopeKey: `coach_group:${group.id}` }, select: { id: true, trainingDate: true } });
+      for (const event of legacyEvents) {
+        const original = previous.filter((t) => t.date === event.trainingDate.toISOString().slice(0, 10)).sort((a, b) => a.createdAt.localeCompare(b.createdAt))[0];
+        if (original) await tx.limitedTrainingEvent.update({ where: { id: event.id }, data: { scopeKey: `coach_group:${group.id}:session:${original.id}` } });
       }
-      trainingDates.push(date);
-    }
-    trainingDates = Array.from(new Set(trainingDates)).sort((a, b) => a.localeCompare(b));
-  } else if (Array.isArray(rawWeekdays)) {
-    trainingWeekdays = Array.from(
-      new Set(
-        rawWeekdays
-          .map((v) => Number.parseInt(String(v), 10))
-          .filter((v) => Number.isInteger(v) && v >= 1 && v <= 7),
-      ),
-    ).sort((a, b) => a - b);
-    const parsedWindow = Number.parseInt(String(rawWindowDays ?? ""), 10);
-    trainingWindowDays = Number.isInteger(parsedWindow) ? parsedWindow : TRAINING_SELECTION_WINDOW_DAYS;
-    trainingDates = getConfiguredTrainingDates({
-      weekdays: trainingWeekdays,
-      windowDays: trainingWindowDays,
-      timeZone: FIXED_TIME_ZONE,
-      maxDays: TRAINING_SELECTION_WINDOW_DAYS,
-    });
-  }
-
-  let trainingDateTimes: Record<string, string> = {};
-  let trainingFieldSelections: Record<string, { trainingFieldId: string | null; trainingFieldPieceIds: string[] }> = {};
-  try {
-    const hasTrainingFields = trainingDates.length > 0 ? await clubHasTrainingFields(clubId) : false;
-    if (!hasTrainingFields) {
-      trainingFieldSelection = { trainingFieldId: null, trainingFieldPieceIds: [] };
-    }
-    if (trainingDates.length > 0) {
-      if (hasTrainingFields && !trainingFieldSelection.trainingFieldId) {
-        return NextResponse.json({ error: "Треньорът трябва да избере терен." }, { status: 400 });
+      const booked = await tx.trainingSession.findMany({ where: { clubId: group.clubId, scopeType: "coachGroup", scopeId: { not: group.id }, status: "scheduled", trainingDate: { in: trainings.map((t) => isoDateToUtcMidnight(t.date)) } } });
+      for (const item of trainings) for (const row of booked) {
+        if (coachTrainingsConflict(item, { id: row.id, date: row.trainingDate.toISOString().slice(0, 10), trainingTime: row.trainingTime ?? "", trainingDurationMinutes: row.trainingDurationMinutes, trainingFieldId: row.trainingFieldId, trainingFieldPieceIds: row.trainingFieldPieceIds, recurrenceId: row.recurrenceId, status: row.status, note: row.note ?? "" })) throw new Error(`Теренът е зает на ${item.date} от ${row.trainingTime}.`);
       }
-      trainingFieldSelections = parseTrainingFieldSelectionsByDate({
-        trainingFieldSelections: rawTrainingFieldSelections,
-        trainingDates,
-        fallback: trainingFieldSelection,
-      });
-      if (hasTrainingFields) {
-        await verifyTrainingFieldSelectionsByDate(clubId, trainingFieldSelections);
-      }
-    }
-    trainingDateTimes = buildTrainingDateTimes({
-      rawTrainingDateTimes,
-      trainingDates,
-      fallbackTrainingTime: trainingTime,
-    });
-    if (hasTrainingFields) {
-      await assertNoTrainingFieldConflict({
-        clubId,
-        trainingDates,
-        trainingDateTimes,
-        trainingDurationMinutes,
-        trainingFieldId: trainingFieldSelection.trainingFieldId,
-        trainingFieldPieceIds: trainingFieldSelection.trainingFieldPieceIds,
-        trainingFieldSelections,
-        exclude: { type: "coachGroup", id: groupId },
-      });
-    }
-    await assertNoTrainingTimeConflict({
-      clubId,
-      trainingDates,
-      trainingDateTimes,
-      trainingDurationMinutes,
-      exclude: { type: "coachGroup", id: groupId },
-      ignoreFieldResourceSchedules: hasTrainingFields,
-    });
-  } catch (err) {
-    return NextResponse.json(
-      { error: err instanceof Error ? err.message : "Invalid trainingDateTimes" },
-      { status: 400 },
-    );
+      await writeCoachTrainings(tx, group.clubId, group.id, trainings, recurrences);
+      for (const item of trainings) await tx.limitedTrainingEvent.updateMany({ where: { clubId: group.clubId, scopeKey: `coach_group:${group.id}:session:${item.id}` }, data: { trainingDate: isoDateToUtcMidnight(item.date) } });
+      await applyCoachTrainingLimits(tx, group.clubId, group.id, trainings, limits);
+      return tx.coachGroup.findUniqueOrThrow({ where: { id: group.id }, select: { updatedAt: true } });
+    }, { timeout: 30000, isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+    const next = await readCoachTrainings(group.clubId, group.id);
+    await notifyCoachTrainingChanges(group.clubId, group.id, previous.filter((t) => t.date >= today), next.filter((t) => t.date >= today)).catch((error) => console.error("Training notifications failed after schedule save:", error));
+    for (const date of new Set([...previous, ...next].map((t) => t.date))) publishTrainingAttendanceUpdated(group.clubId, date);
+    return NextResponse.json({ trainings: next, recurrences, version: savedGroup.updatedAt.toISOString() });
+  } catch (error) {
+    console.error("Coach training schedule save failed:", error);
+    return NextResponse.json({ error: error instanceof Error ? error.message : "Неуспешно запазване." }, { status: 400 });
   }
-
-  const result = await prisma.coachGroup.updateMany({
-    where: { id: groupId, clubId },
-    data: {
-      trainingDates,
-      trainingWeekdays,
-      trainingTime,
-      trainingDurationMinutes,
-      trainingFieldId: trainingFieldSelection.trainingFieldId,
-      trainingFieldPieceIds: trainingFieldSelection.trainingFieldPieceIds,
-      trainingFieldSelections,
-      trainingDateTimes,
-      trainingWindowDays,
-    },
-  });
-
-  if (result.count === 0) {
-    return NextResponse.json({ error: "Coach group not found" }, { status: 404 });
-  }
-
-  const todayIso = getTodayIsoDateInTimeZone(FIXED_TIME_ZONE);
-  await prisma.$transaction(
-    (tx) =>
-      syncFutureTrainingSessions({
-        tx,
-        clubId,
-        scope: { type: "coachGroup", id: groupId },
-        trainingDates,
-        trainingDateTimes,
-        trainingDurationMinutes,
-        trainingFieldId: trainingFieldSelection.trainingFieldId,
-        trainingFieldPieceIds: trainingFieldSelection.trainingFieldPieceIds,
-        trainingFieldSelections,
-        todayIso,
-      }),
-    { timeout: 30000 },
-  );
-
-  const resolvedDates = getConfiguredTrainingDates({
-    trainingDates,
-    weekdays: trainingWeekdays,
-    windowDays: trainingWindowDays,
-    timeZone: FIXED_TIME_ZONE,
-    maxDays: TRAINING_SELECTION_WINDOW_DAYS,
-  });
-  const resolvedDateTimes = normalizeStoredTrainingDateTimes(trainingDateTimes, resolvedDates);
-  const hasSchedule = trainingDates.length > 0 || trainingWeekdays.length > 0;
-
-  return NextResponse.json({
-    trainingDates: resolvedDates,
-    trainingTime,
-    trainingDurationMinutes,
-    trainingFieldId: trainingFieldSelection.trainingFieldId,
-    trainingFieldPieceIds: trainingFieldSelection.trainingFieldPieceIds,
-    trainingFieldSelections,
-    trainingDateTimes: resolvedDateTimes,
-    trainingWeekdays,
-    trainingWindowDays,
-    hasSchedule,
-  });
 }

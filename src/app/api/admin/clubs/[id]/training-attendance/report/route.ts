@@ -285,15 +285,13 @@ export async function GET(
     });
 
     const scopeKey = getTrainingSessionScopeKey(
-      customTrainingGroup
+      coachGroupId ? { type: "coachGroup", id: coachGroupId } : customTrainingGroup
         ? { type: "customGroup", id: customTrainingGroup.id }
         : trainingGroup
           ? { type: "trainingGroup", id: trainingGroup.id }
           : teamGroup !== null
             ? { type: "teamGroup", teamGroup }
-            : coachGroupId
-              ? { type: "coachGroup", id: coachGroupId }
-              : { type: "club" },
+            : { type: "club" },
     );
 
     const storedSessions = await prisma.trainingSession.findMany({
@@ -304,6 +302,9 @@ export async function GET(
         status: { not: "cancelled" },
       },
       select: {
+        id: true,
+        scopeType: true,
+        trainingTime: true,
         trainingDate: true,
         players: {
           select: {
@@ -385,6 +386,16 @@ export async function GET(
       }
     }
 
+    if (coachGroupId || storedSessions.some((s) => s.scopeType === "coachGroup")) {
+      const columns = storedSessions.map((s) => ({ key: `${utcDateToIsoDate(s.trainingDate)}T${s.trainingTime ?? "00:00"}#${s.id}`, session: s }));
+      return NextResponse.json({
+        trainingDates: columns.map((c) => c.key),
+        players: players.map((p) => ({ ...p, attendance: Object.fromEntries(columns.map(({ key, session }) => {
+          const row = session.players.find((r) => r.playerId === p.id);
+          return [key, { present: row?.present ?? false, reasonCode: row?.present ? null : row?.reasonCode ?? null }];
+        })) })),
+      });
+    }
     return NextResponse.json({
       trainingDates: reportTrainingDates,
       players: players.map((p) => ({

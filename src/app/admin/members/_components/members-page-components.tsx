@@ -315,12 +315,12 @@ function AttendanceDashboard({
   }, [from, to, scopeType, groupScope, selectedPlayerId, selectedCustomGroupId, attendanceScopeKey]);
 
   const formatDateHeader = (iso: string): string => {
-    const parts = iso.split("-");
+    const parts = iso.slice(0, 10).split("-");
     const month = parts[1] ?? "01";
     const day = parts[2] ?? "01";
     const monthIdx = parseInt(month, 10) - 1;
     const shortMonths = ["Ян", "Фев", "Мар", "Апр", "Май", "Юни", "Юли", "Авг", "Сеп", "Окт", "Ное", "Дек"];
-    return `${day}\n${shortMonths[monthIdx] ?? ""}`;
+    return `${day}\n${shortMonths[monthIdx] ?? ""}${iso.includes("#") ? `\n${iso.slice(11, 16)}` : ""}`;
   };
 
   const emptyLabel = groupScope.startsWith("tg:")
@@ -372,7 +372,7 @@ function AttendanceDashboard({
             {
               method: "PATCH",
               headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ playerId, trainingDate, optedOut }),
+              body: JSON.stringify({ playerId, trainingDate: trainingDate.slice(0, 10), trainingSessionId: trainingDate.includes("#") ? trainingDate.split("#")[1] : undefined, optedOut }),
             },
           );
           if (!res.ok) {
@@ -433,7 +433,7 @@ function AttendanceDashboard({
     const tHeadHtml = `
       <tr>
         <th style="padding: 6px; text-align: left; border-bottom: 2px solid #ccc; white-space: nowrap;">Име</th>
-        ${data.trainingDates.map(d => `<th style="padding: 6px; border-bottom: 2px solid #ccc; text-align: center;">${d.split('-')[2]}.${d.split('-')[1]}</th>`).join('')}
+        ${data.trainingDates.map(d => `<th style="padding: 6px; border-bottom: 2px solid #ccc; text-align: center;">${formatDateHeader(d).replaceAll("\n", "<br>")}</th>`).join('')}
         <th style="padding: 6px; border-bottom: 2px solid #ccc; text-align: center;">%</th>
       </tr>
     `;

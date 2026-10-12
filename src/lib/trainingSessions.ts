@@ -148,6 +148,7 @@ export async function syncFutureTrainingSessions(input: {
           clubId: input.clubId,
           scopeKey: scopeData.scopeKey,
           trainingDate: isoDateToUtcMidnight(date),
+          occurrenceKey: "",
         },
       },
       update: {
@@ -230,6 +231,7 @@ export async function updateTrainingSessionPlayerAttendance(input: {
       playerId: input.playerId,
       trainingSession: {
         clubId: input.clubId,
+        scopeType: { not: "coachGroup" },
         trainingDate: isoDateToUtcMidnight(input.trainingDate),
       },
     },
