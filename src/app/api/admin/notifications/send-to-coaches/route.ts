@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { uploadMessageImage } from "@/lib/uploadMessageImage";
 import { prisma } from "@/lib/db";
 import { verifyAdminToken } from "@/lib/adminAuth";
 import { buildNotificationPayload } from "@/lib/push/templates";
@@ -20,11 +21,27 @@ export async function POST(request: NextRequest) {
   }
 
   let body: unknown;
+  let image: File | null = null;
   try {
-    body = await request.json();
+    if (request.headers.get("content-type")?.includes("multipart/form-data")) {
+      const form = await request.formData();
+      body = JSON.parse(String(form.get("payload") ?? "{}"));
+      const attachment = form.get("image");
+      if (attachment !== null) {
+        if (!(attachment instanceof File) || !["image/jpeg", "image/png", "image/webp"].includes(attachment.type) ||
+            attachment.size === 0 || attachment.size > 9 * 1024 * 1024) {
+          return NextResponse.json({ error: "Изберете JPG, PNG или WebP снимка до 9 MB." }, { status: 400 });
+        }
+        image = attachment;
+      }
+    } else {
+      body = await request.json();
+    }
   } catch {
     return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
   }
+
+  if (!body || typeof body !== "object") return NextResponse.json({ error: "Invalid body" }, { status: 400 });
 
   const payload = body as { clubIds?: unknown; message?: unknown; includeCoachGroupPages?: unknown };
 
@@ -54,6 +71,15 @@ export async function POST(request: NextRequest) {
   });
   if (clubs.length === 0) {
     return NextResponse.json({ error: "No clubs found" }, { status: 404 });
+  }
+
+  let attachment: { imageUrl: string; imagePublicId: string } | undefined;
+  if (image) {
+    try {
+      attachment = await uploadMessageImage(image);
+    } catch {
+      return NextResponse.json({ error: "Неуспешно качване на снимката. Проверете файла и опитайте отново." }, { status: 400 });
+    }
   }
 
   const results = await Promise.all(
@@ -88,6 +114,7 @@ export async function POST(request: NextRequest) {
             type: "myteam_message",
             payload: pushPayload,
             coachGroupId: scope.coachGroupId,
+            ...attachment,
           });
           return sendResult;
         }),

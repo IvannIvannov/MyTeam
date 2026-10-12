@@ -2,7 +2,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
 import { POST } from "./route";
 
-const mocks = vi.hoisted(() => ({ session: vi.fn(), clubs: vi.fn(), history: vi.fn(), push: vi.fn(), template: vi.fn() }));
+const mocks = vi.hoisted(() => ({ session: vi.fn(), clubs: vi.fn(), history: vi.fn(), push: vi.fn(), template: vi.fn(), upload: vi.fn() }));
+vi.mock("@/lib/uploadMessageImage", () => ({ uploadMessageImage: mocks.upload }));
 vi.mock("@/lib/adminAuth", () => ({ verifyAdminToken: mocks.session }));
 vi.mock("@/lib/db", () => ({ prisma: { club: { findMany: mocks.clubs } } }));
 vi.mock("@/lib/push/adminHistory", () => ({ saveAdminNotificationHistory: mocks.history }));
@@ -54,6 +55,46 @@ describe("admin broadcast sender", () => {
     expect(mocks.history).toHaveBeenCalledWith(expect.objectContaining({ coachGroupId: null }));
     expect(mocks.push).toHaveBeenCalledTimes(1);
     expect(mocks.push).toHaveBeenCalledWith("club", expect.any(Object), null);
+  });
+
+  it("uploads once and saves the image reference on every destination", async () => {
+    mocks.upload.mockResolvedValue({ imageUrl: "https://res.cloudinary.com/test/image/upload/messages/photo.webp", imagePublicId: "messages/photo" });
+    const form = new FormData();
+    form.append("payload", JSON.stringify({ clubIds: ["club"], message: "Hello", includeCoachGroupPages: true }));
+    form.append("image", new File(["image"], "photo.png", { type: "image/png" }));
+    const req = new NextRequest("http://localhost/api/admin/notifications/send-to-coaches", {
+      method: "POST", headers: { cookie: "admin_session=test" }, body: form,
+    });
+    expect((await POST(req)).status).toBe(200);
+    expect(mocks.upload).toHaveBeenCalledTimes(1);
+    expect(mocks.history).toHaveBeenCalledTimes(2);
+    for (const [input] of mocks.history.mock.calls) {
+      expect(input).toMatchObject({ imageUrl: "https://res.cloudinary.com/test/image/upload/messages/photo.webp", imagePublicId: "messages/photo" });
+    }
+  });
+
+  it.each(["image/svg+xml", "text/plain"])("rejects unsupported image type %s before upload or send", async type => {
+    const form = new FormData();
+    form.append("payload", JSON.stringify({ clubIds: ["club"], message: "Hello" }));
+    form.append("image", new File(["invalid"], "photo", { type }));
+    const req = new NextRequest("http://localhost/api/admin/notifications/send-to-coaches", {
+      method: "POST", headers: { cookie: "admin_session=test" }, body: form,
+    });
+    expect((await POST(req)).status).toBe(400);
+    expect(mocks.upload).not.toHaveBeenCalled();
+    expect(mocks.push).not.toHaveBeenCalled();
+  });
+
+  it("rejects coach image uploads before processing the file", async () => {
+    mocks.session.mockResolvedValue({ roles: ["coach"] });
+    const form = new FormData();
+    form.append("image", new File(["image"], "photo.png", { type: "image/png" }));
+    const req = new NextRequest("http://localhost/api/admin/notifications/send-to-coaches", {
+      method: "POST", headers: { cookie: "admin_session=test" }, body: form,
+    });
+    expect((await POST(req)).status).toBe(403);
+    expect(mocks.upload).not.toHaveBeenCalled();
+    expect(mocks.history).not.toHaveBeenCalled();
   });
 
   it("rejects a coach login before broadcasting", async () => {

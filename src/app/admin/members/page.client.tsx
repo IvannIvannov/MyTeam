@@ -1,6 +1,7 @@
 "use client";
 
 import { Suspense, useState, useEffect, useMemo, useCallback, useRef, type CSSProperties } from "react";
+import { NotificationImage } from "@/components/NotificationImage";
 import { NotificationText } from "@/components/NotificationText";
 import { useRouter, useSearchParams } from "next/navigation";
 import { extractUploadPathFromCloudinaryUrl } from "@/lib/cloudinaryImagePath";
@@ -6018,6 +6019,7 @@ function AdminMembersPageContent() {
                             </span>
                           ) : null}
                           <p><NotificationText text={notif.body} /></p>
+                          <NotificationImage src={notif.imageUrl} />
                           <div className="amp-member-notification-meta">
                             {typeof notif.teamGroup === "number" ? <span>{"\u041e\u0442\u0431\u043e\u0440: "}{notif.teamGroup}</span> : null}
                             {Array.isArray(notif.trainingGroups) && notif.trainingGroups.length > 0 ? (

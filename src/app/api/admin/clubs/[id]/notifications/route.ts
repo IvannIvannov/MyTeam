@@ -56,6 +56,7 @@ export async function GET(
               type: String(raw.type ?? ""),
               title: String(raw.title ?? ""),
               body: String(raw.body ?? ""),
+              imageUrl: raw.imageUrl ? String(raw.imageUrl) : null,
               url: raw.url ? String(raw.url) : null,
               sentAt: String(raw.sentAt ?? ""),
               readAt: raw.readAt ? String(raw.readAt) : null,
@@ -68,6 +69,7 @@ export async function GET(
             type: string;
             title: string;
             body: string;
+            imageUrl: string | null;
             url: string | null;
             sentAt: string;
             readAt: string | null;

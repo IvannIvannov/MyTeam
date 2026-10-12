@@ -15,6 +15,8 @@ export async function saveAdminNotificationHistory(input: {
   clubId: string;
   type: string;
   payload: PushNotificationPayload;
+  imageUrl?: string;
+  imagePublicId?: string;
   playerId?: string | null;
   coachGroupId?: string | null;
 }) {
@@ -26,6 +28,8 @@ export async function saveAdminNotificationHistory(input: {
       type: input.type,
       title: input.payload.title,
       body: input.payload.body,
+      imageUrl: input.imageUrl ?? null,
+      imagePublicId: input.imagePublicId ?? null,
       url: input.payload.url,
     },
   });
@@ -70,6 +74,7 @@ export async function getClubAdminNotifications(input: {
       type: true,
       title: true,
       body: true,
+      imageUrl: true,
       url: true,
       sentAt: true,
       readAt: true,
