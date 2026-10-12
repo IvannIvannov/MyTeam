@@ -71,6 +71,8 @@ export default function AdminPlayersPage() {
   const demoPickerRef = useRef<HTMLDivElement | null>(null);
 
   const [coachMessage, setCoachMessage] = useState("");
+  const [coachImage, setCoachImage] = useState<File | null>(null);
+  const coachImageInputRef = useRef<HTMLInputElement | null>(null);
   const [coachClubIds, setCoachClubIds] = useState<string[]>([]);
   const [coachClubPickerOpen, setCoachClubPickerOpen] = useState(false);
   const [coachClubSearch, setCoachClubSearch] = useState("");
@@ -236,14 +238,17 @@ export default function AdminPlayersPage() {
     if (isSendingCoach || coachClubIds.length === 0 || !coachMessage.trim()) return;
     setIsSendingCoach(true);
     try {
+      const payload = {
+        clubIds: coachClubIds,
+        message: coachMessage.trim(),
+        includeCoachGroupPages: coachMessageScope === "all",
+      };
+      const form = new FormData();
+      form.append("payload", JSON.stringify(payload));
+      if (coachImage) form.append("image", coachImage);
       const response = await fetch("/api/admin/notifications/send-to-coaches", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          clubIds: coachClubIds,
-          message: coachMessage.trim(),
-          includeCoachGroupPages: coachMessageScope === "all",
-        }),
+        body: form,
       });
       const data = (await response.json().catch(() => ({}))) as { sent?: number; total?: number; error?: string };
       if (!response.ok) {
@@ -251,6 +256,8 @@ export default function AdminPlayersPage() {
       }
       window.alert(`Съобщението е изпратено: ${data.sent ?? 0}/${data.total ?? 0}`);
       setCoachMessage("");
+      setCoachImage(null);
+      if (coachImageInputRef.current) coachImageInputRef.current.value = "";
     } catch (error) {
       window.alert(error instanceof Error ? error.message : "Възникна грешка при изпращане.");
     } finally {
@@ -523,6 +530,25 @@ export default function AdminPlayersPage() {
               boxSizing: "border-box",
             }}
           />
+          <label style={{ display: "block", marginTop: 10 }}>
+            Снимка към съобщението (JPG, PNG, WebP, до 9 MB)
+            <input ref={coachImageInputRef} type="file" accept="image/jpeg,image/png,image/webp"
+              disabled={isSendingCoach}
+              onChange={event => {
+                const file = event.target.files?.[0] ?? null;
+                if (file && (!["image/jpeg", "image/png", "image/webp"].includes(file.type) || file.size > 9 * 1024 * 1024)) {
+                  window.alert("Изберете JPG, PNG или WebP снимка до 9 MB.");
+                  event.target.value = "";
+                  setCoachImage(null);
+                  return;
+                }
+                setCoachImage(file);
+              }} />
+          </label>
+          {coachImage ? <button type="button" disabled={isSendingCoach} onClick={() => {
+            setCoachImage(null);
+            if (coachImageInputRef.current) coachImageInputRef.current.value = "";
+          }}>Премахни снимката: {coachImage.name}</button> : null}
           <div className="mp-coach-scope" role="radiogroup" aria-label="Обхват на съобщението">
             <label className={`mp-coach-scope-option${coachMessageScope === "main" ? " is-selected" : ""}`}>
               <input

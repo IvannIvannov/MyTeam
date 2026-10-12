@@ -1,6 +1,8 @@
 "use client";
 
 import { Suspense, useState, useEffect, useMemo, useCallback, useRef, type CSSProperties } from "react";
+import { NotificationImage } from "@/components/NotificationImage";
+import { NotificationText } from "@/components/NotificationText";
 import { useRouter, useSearchParams } from "next/navigation";
 import { extractUploadPathFromCloudinaryUrl } from "@/lib/cloudinaryImagePath";
 import { uploadImage, validateImageFile } from "@/lib/uploadImage";
@@ -6016,7 +6018,8 @@ function AdminMembersPageContent() {
                               {notif.type === "myteam_message" ? "MYTEAM7" : "\u0410\u0434\u043c\u0438\u043d\u0438\u0441\u0442\u0440\u0430\u0442\u043e\u0440"}
                             </span>
                           ) : null}
-                          <p style={{ whiteSpace: "pre-wrap" }}>{notif.body}</p>
+                          <p><NotificationText text={notif.body} /></p>
+                          <NotificationImage src={notif.imageUrl} />
                           <div className="amp-member-notification-meta">
                             {typeof notif.teamGroup === "number" ? <span>{"\u041e\u0442\u0431\u043e\u0440: "}{notif.teamGroup}</span> : null}
                             {Array.isArray(notif.trainingGroups) && notif.trainingGroups.length > 0 ? (

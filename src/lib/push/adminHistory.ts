@@ -15,6 +15,8 @@ export async function saveAdminNotificationHistory(input: {
   clubId: string;
   type: string;
   payload: PushNotificationPayload;
+  imageUrl?: string;
+  imagePublicId?: string;
   playerId?: string | null;
   coachGroupId?: string | null;
 }) {
@@ -26,6 +28,8 @@ export async function saveAdminNotificationHistory(input: {
       type: input.type,
       title: input.payload.title,
       body: input.payload.body,
+      imageUrl: input.imageUrl ?? null,
+      imagePublicId: input.imagePublicId ?? null,
       url: input.payload.url,
     },
   });
@@ -43,10 +47,9 @@ export async function getClubAdminNotifications(input: {
   clubId: string;
   playerId?: string | null;
   coachGroupId?: string | null;
-  excludeCoachPageMessages?: boolean;
 }) {
   const where: Record<string, unknown> = { clubId: input.clubId };
-  if (input.excludeCoachPageMessages && !input.coachGroupId) {
+  if (!input.coachGroupId) {
     where.NOT = { type: { in: ["admin_message", "myteam_message"] }, coachGroupId: { not: null } };
   }
   if (input.playerId) {
@@ -71,6 +74,7 @@ export async function getClubAdminNotifications(input: {
       type: true,
       title: true,
       body: true,
+      imageUrl: true,
       url: true,
       sentAt: true,
       readAt: true,
@@ -84,10 +88,9 @@ export async function getClubAdminUnreadCount(input: {
   clubId: string;
   playerId?: string | null;
   coachGroupId?: string | null;
-  excludeCoachPageMessages?: boolean;
 }) {
   const where: Record<string, unknown> = { clubId: input.clubId, readAt: null };
-  if (input.excludeCoachPageMessages && !input.coachGroupId) {
+  if (!input.coachGroupId) {
     where.NOT = { type: { in: ["admin_message", "myteam_message"] }, coachGroupId: { not: null } };
   }
   if (input.playerId) {
@@ -109,10 +112,9 @@ export async function markClubAdminNotificationsRead(input: {
   clubId: string;
   playerId?: string | null;
   coachGroupId?: string | null;
-  excludeCoachPageMessages?: boolean;
 }) {
   const where: Record<string, unknown> = { clubId: input.clubId, readAt: null };
-  if (input.excludeCoachPageMessages && !input.coachGroupId) {
+  if (!input.coachGroupId) {
     where.NOT = { type: { in: ["admin_message", "myteam_message"] }, coachGroupId: { not: null } };
   }
   if (input.playerId) {

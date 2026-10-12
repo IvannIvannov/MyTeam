@@ -532,6 +532,8 @@ model PlayerNotification {
 }
 
 model AdminNotification {
+  imageUrl String? @map("image_url")
+  imagePublicId String? @map("image_public_id")
   id           String      @id @default(uuid())
   clubId       String      @map("club_id") @db.Uuid
   playerId     String?     @map("player_id") @db.Uuid

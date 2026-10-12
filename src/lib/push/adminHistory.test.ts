@@ -5,10 +5,10 @@ const mocks = vi.hoisted(() => ({ findMany: vi.fn(), count: vi.fn(), updateMany:
 vi.mock("@/lib/db", () => ({ prisma: { adminNotification: mocks } }));
 vi.mock("@/lib/adminNotificationEvents", () => ({ publishAdminNotificationCreated: vi.fn() }));
 
-describe("coach main-page notification scope", () => {
+describe("main-page notification scope", () => {
   beforeEach(() => vi.clearAllMocks());
   it("excludes coach-page messages consistently from the list, count and read action", async () => {
-    const input = { clubId: "club", excludeCoachPageMessages: true };
+    const input = { clubId: "club" };
     await getClubAdminNotifications(input);
     await getClubAdminUnreadCount(input);
     await markClubAdminNotificationsRead(input);
@@ -18,12 +18,8 @@ describe("coach main-page notification scope", () => {
       expect(method).toHaveBeenCalledWith(expect.objectContaining({ where: { clubId: "club", readAt: null, NOT: excluded } }));
     }
   });
-  it("keeps admins' club-wide history", async () => {
-    await getClubAdminNotifications({ clubId: "club", excludeCoachPageMessages: false });
-    expect(mocks.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: { clubId: "club" } }));
-  });
   it("keeps messages visible on the targeted coach page", async () => {
-    const input = { clubId: "club", coachGroupId: "group", excludeCoachPageMessages: true };
+    const input = { clubId: "club", coachGroupId: "group" };
     await getClubAdminNotifications(input);
     await getClubAdminUnreadCount(input);
     await markClubAdminNotificationsRead(input);
