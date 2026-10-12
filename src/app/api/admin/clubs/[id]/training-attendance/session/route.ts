@@ -141,8 +141,11 @@ export async function PATCH(
   if (!isIsoDate(date)) {
     return NextResponse.json({ error: "Invalid date" }, { status: 400 });
   }
-  if (rawStatus !== "scheduled" && rawStatus !== "cancelled") {
-    return NextResponse.json({ error: "status must be 'scheduled' or 'cancelled'" }, { status: 400 });
+  if (rawStatus === "scheduled") {
+    return NextResponse.json({ error: "Training restoration is disabled" }, { status: 409 });
+  }
+  if (rawStatus !== "cancelled") {
+    return NextResponse.json({ error: "status must be 'cancelled'" }, { status: 400 });
   }
   if (body.trainingSessionId) {
     const row = await prisma.trainingSession.findFirst({ where: { id: String(body.trainingSessionId), clubId, scopeType: "coachGroup" } });
@@ -182,10 +185,6 @@ export async function PATCH(
     }
 
     const trainingDate = isoDateToUtcMidnight(date);
-    if (rawStatus === "scheduled") {
-      const cancelled = await prisma.trainingSession.findFirst({ where: { clubId, scopeKey, trainingDate, occurrenceKey: "", status: "cancelled" } });
-      if (!cancelled) return NextResponse.json({ error: "Cancelled training not found" }, { status: 404 });
-    }
     await prisma.trainingSession.upsert({
       where: { clubId_scopeKey_trainingDate: { clubId, scopeKey, trainingDate, occurrenceKey: "" } },
       update: { status: rawStatus },

@@ -56,6 +56,7 @@ export async function PUT(request: NextRequest, context: Context) {
     const limits = parseCoachTrainingLimits(body.limits ?? []);
     if (new Set(recurrences.map((r) => r.id)).size !== recurrences.length) throw new Error("Duplicate recurring time");
     const explicit = body.trainings.map(parseCoachTraining);
+    if (explicit.some((item: { id: string; status: string }) => item.status === "scheduled" && previous.some((stored) => stored.id === item.id && stored.status === "cancelled"))) throw new Error("Training restoration is disabled");
     // Explicit edits override generated occurrences by ID, including cancellations.
     const generated = expandCoachRecurrences(recurrences, [...explicit, ...previous], today);
     const byId = new Map(generated.map((t) => [t.id, t]));

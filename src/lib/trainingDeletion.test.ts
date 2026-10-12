@@ -46,9 +46,22 @@ it("permanently deletes only the selected coach session and its registration eve
 it("does not delete another club's session or create a record when restoring a deleted coach session", async () => {
   db.trainingSession.findFirst.mockResolvedValue(null);
   expect((await DELETE(request({ date, trainingSessionId: id }), params)).status).toBe(404);
-  expect((await PATCH(request({ date, trainingSessionId: id, status: "scheduled" }, "PATCH"), params)).status).toBe(404);
+  expect((await PATCH(request({ date, trainingSessionId: id, status: "scheduled" }, "PATCH"), params)).status).toBe(409);
   expect(db.trainingSession.delete).not.toHaveBeenCalled();
   expect(db.trainingSession.upsert).not.toHaveBeenCalled();
+});
+it.each([
+  { date, trainingSessionId: id, status: "scheduled" },
+  { date, customTrainingGroupId: id, status: "scheduled" },
+  { date, teamGroup: 2026, status: "scheduled" },
+  { date, status: "scheduled" },
+])("rejects restoration before reading or modifying training records: %j", async (body) => {
+  const response = await PATCH(request(body, "PATCH"), params);
+  expect(response.status).toBe(409);
+  expect(await response.json()).toEqual({ error: "Training restoration is disabled" });
+  expect(db.trainingSession.findFirst).not.toHaveBeenCalled();
+  expect(db.trainingSession.upsert).not.toHaveBeenCalled();
+  expect(db.$transaction).not.toHaveBeenCalled();
 });
 it("never regenerates an excluded recurring occurrence, including after its time changes", () => {
   const rules = parseCoachRecurrences([{ id: rule, weekday: 1, trainingTime: "18:00", trainingDurationMinutes: 60, excludedDates: [date] }]);
