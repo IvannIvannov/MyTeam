@@ -3,6 +3,7 @@
  * Each coach scope (club + coachGroupId) may use a color at most once.
  */
 export const CUSTOM_TRAINING_GROUP_COLOR_PALETTE = [
+  // Keep these original colors unchanged: existing groups store their exact hex values.
   "#E53935",
   "#1E88E5",
   "#43A047",
@@ -20,6 +21,24 @@ export const CUSTOM_TRAINING_GROUP_COLOR_PALETTE = [
   "#00ACC1",
   "#212121",
   "#FAFAFA",
+  // Additional colors vary in hue, brightness, and saturation.
+  "#800020",
+  "#000080",
+  "#FF00FF",
+  "#00FFFF",
+  "#FFFF00",
+  "#00FF7F",
+  "#7FFF00",
+  "#A6A6A6",
+  "#004D1A",
+  "#FF6347",
+  "#7B3F00",
+  "#6B6B00",
+  "#B57EDC",
+  "#F2B6C6",
+  "#0099FF",
+  "#C8A26A",
+  "#4D0033",
 ] as const;
 
 export type CustomTrainingGroupPaletteColor = (typeof CUSTOM_TRAINING_GROUP_COLOR_PALETTE)[number];
