@@ -159,3 +159,20 @@ See `.env.example` for all required variables. Critical ones:
 - `CRON_SECRET` — Authorization for cron endpoints
 - `CRON_TIMEZONE` — Timezone for cron scheduling (default: `Europe/Sofia`)
 - `GOOGLE_DRIVE_API_KEY` — Optional, for bulk photo imports
+
+## Agent skills
+
+### Issue tracker
+
+Track issues in GitHub Issues for moozuk22/MyTeam.
+See `docs/agents/issue-tracker.md` for tracker operations.
+
+### Triage labels
+
+Use the five default triage labels.
+See `docs/agents/triage-labels.md` before applying labels.
+
+### Domain docs
+
+Use a single-context domain layout.
+Read `docs/agents/domain.md` before exploring domain concepts.
