@@ -1,6 +1,6 @@
 "use client";
 import { mergeTrainingCalendarDates } from "@/lib/trainingCalendarDates";
-import { toggleTrainingFieldPiece } from "@/lib/trainingFieldPicker";
+import { applyTrainingFieldToDates, toggleTrainingFieldPiece } from "@/lib/trainingFieldPicker";
 
 import { Suspense, useState, useEffect, useMemo, useCallback, useRef, type CSSProperties } from "react";
 import { NotificationImage } from "@/components/NotificationImage";
@@ -934,6 +934,9 @@ function AdminMembersPageContent() {
   const [trainingFieldsLoading, setTrainingFieldsLoading] = useState(false);
   const [fieldConflictsMap, setFieldConflictsMap] = useState<Record<string, { blockedPieceIds: string[]; wholeFieldBlocked: boolean }>>({});
   const [fieldConflictsLoading, setFieldConflictsLoading] = useState(false);
+  const [trainingFieldBulkApplying, setTrainingFieldBulkApplying] = useState(false);
+  const [trainingFieldBulkSuccess, setTrainingFieldBulkSuccess] = useState<{ message: string; signature: string } | null>(null);
+  const latestFieldConflictsParams = useRef<string | null>(null);
   const [trainingFieldModalOpen, setTrainingFieldModalOpen] = useState(false);
   const [trainingFieldSaving, setTrainingFieldSaving] = useState(false);
   const [trainingFieldError, setTrainingFieldError] = useState("");
@@ -2199,7 +2202,7 @@ function AdminMembersPageContent() {
     const effectiveTimes: Record<string, string> = {};
     const fallback = trainingTimeMode === "all" ? schedulerForm.trainingTime.trim() : "";
     for (const date of datesArr) {
-      const t = ((trainingDateTimes as Record<string, unknown>)[date] as string | undefined)?.trim() ?? fallback;
+      const t = trainingTimeMode === "all" ? fallback : ((trainingDateTimes as Record<string, unknown>)[date] as string | undefined)?.trim() ?? "";
       if (/^([01]\d|2[0-3]):[0-5]\d$/.test(t)) {
         effectiveTimes[date] = t;
       }
@@ -2238,6 +2241,10 @@ function AdminMembersPageContent() {
     }
     return params.toString();
   }, [trainingDaysEditorOpen, trainingDaysEditorMode, clubId, schedulerForm.trainingDates, schedulerForm.trainingDurationMinutes, schedulerForm.trainingTime, trainingDateTimes, trainingTimeMode, selectedTrainingGroupId, coachWizardSelection, coachWizardGroupId, coachWizardTrainings, selectedTeamGroup]);
+
+  latestFieldConflictsParams.current = fieldConflictsFetchParams;
+  const trainingFieldBulkSignature = JSON.stringify({ params: fieldConflictsFetchParams, selections: trainingFieldSelections });
+  useEffect(() => { setTrainingFieldBulkSuccess(null); }, [trainingDaysEditorOpen]);
 
   useEffect(() => {
     if (!fieldConflictsFetchParams || !clubId) {
@@ -2390,6 +2397,35 @@ function AdminMembersPageContent() {
       : trainingScheduleGroups.filter((group) => group.teamGroups.includes(selectedTeamGroup));
   const activeTrainingFieldSelection = trainingFieldSelections[trainingFieldActiveDate] ?? { trainingFieldId: "", trainingFieldPieceIds: [] };
   const selectedActiveTrainingField = trainingFields.find((field) => field.id === activeTrainingFieldSelection.trainingFieldId) ?? null;
+  const applyFieldToAllTrainingDays = async () => {
+    if (!clubId || !fieldConflictsFetchParams || trainingFieldBulkApplying) return;
+    const paramsSnapshot = fieldConflictsFetchParams;
+    const dates = [...schedulerForm.trainingDates];
+    const selection = { trainingFieldId: activeTrainingFieldSelection.trainingFieldId, trainingFieldPieceIds: [...activeTrainingFieldSelection.trainingFieldPieceIds] };
+    setTrainingFieldBulkApplying(true);
+    setTrainingFieldBulkSuccess(null);
+    setTrainingDaysEditorError("");
+    try {
+      const query = new URLSearchParams(paramsSnapshot);
+      const times = JSON.parse(query.get("dateTimes") ?? "{}");
+      if (dates.some((date) => !times[date])) throw new Error("Задайте час за всяка избрана дата.");
+      const response = await fetch(`/api/admin/clubs/${encodeURIComponent(clubId)}/field-conflicts?${paramsSnapshot}`, { cache: "no-store" });
+      if (!response.ok) throw new Error("Неуспешна проверка за заетост на терена. Опитайте отново.");
+      const payload = await response.json();
+      if (!Array.isArray(payload.occupiedResources)) throw new Error("Неуспешна проверка за заетост на терена.");
+      if (latestFieldConflictsParams.current !== paramsSnapshot) throw new Error("Датите или часовете са променени. Проверете отново.");
+      const result = applyTrainingFieldToDates(trainingFieldSelections, dates, selection, payload.occupiedResources);
+      if (!result.selections) {
+        setTrainingFieldActiveDate(result.conflictingDates[0]);
+        throw new Error(`Избраният терен или позиции са заети на: ${result.conflictingDates.map(formatIsoDateForDisplay).join(", ")}. Изберете други позиции за тези дни.`);
+      }
+      setTrainingFieldSelections(result.selections);
+      setTrainingFieldBulkSuccess({ message: `Теренът и позициите са приложени успешно за всички избрани дни (${dates.length}).`, signature: JSON.stringify({ params: paramsSnapshot, selections: result.selections }) });
+    } catch (error) {
+      setTrainingDaysEditorError(error instanceof Error ? error.message : "Неуспешна проверка на терена.");
+    } finally { setTrainingFieldBulkApplying(false); }
+  };
+
   const hasMissingTrainingField =
     trainingDaysEditorMode !== "createGroup" &&
     trainingFields.length > 0 &&
@@ -4024,7 +4060,7 @@ function AdminMembersPageContent() {
 
 
   const saveTrainingDaysFromTrainingModal = async () => {
-    if (!clubId || trainingDaysEditorSaving) return;
+    if (!clubId || trainingDaysEditorSaving || trainingFieldBulkApplying) return;
     setTrainingDaysEditorSaving(true);
     setTrainingDaysEditorError("");
     try {
@@ -9071,7 +9107,7 @@ function AdminMembersPageContent() {
                               type="button"
                               className={`amp-pill${trainingFieldActiveDate === date ? " amp-pill--active" : ""}`}
                               onClick={() => setTrainingFieldActiveDate(date)}
-                              disabled={trainingDaysEditorSaving}
+                              disabled={trainingDaysEditorSaving || trainingFieldBulkApplying}
                             >
                               {formatIsoDateForDisplay(date)}
                             </button>
@@ -9080,6 +9116,17 @@ function AdminMembersPageContent() {
                         <span className="amp-lbl" style={{ textAlign: "center", opacity: 0.82 }}>
                           Избран ден: {trainingFieldActiveDate ? formatIsoDateForDisplay(trainingFieldActiveDate) : "-"}
                         </span>
+                        {normalizedTrainingDaysSelection.length > 1 && <button
+                          type="button"
+                          className="amp-btn amp-btn--ghost"
+                          onClick={() => void applyFieldToAllTrainingDays()}
+                          disabled={trainingDaysEditorSaving || trainingFieldsLoading || fieldConflictsLoading || trainingFieldBulkApplying || !activeTrainingFieldSelection.trainingFieldId}
+                        >
+                          {trainingFieldBulkApplying ? "Проверка на заетостта…" : "Приложи терена и позициите за всички дни"}
+                        </button>}
+                        {trainingFieldBulkSuccess?.signature === trainingFieldBulkSignature && <p role="status" aria-live="polite" style={{ margin: 0, textAlign: "center", color: "#32cd32", fontSize: 13 }}>
+                          {trainingFieldBulkSuccess.message}
+                        </p>}
                         <div style={{ display: "grid", gap: "12px" }}>
                           {trainingFields.map((field) => {
                             const isFieldSelected = activeTrainingFieldSelection.trainingFieldId === field.id;
@@ -9101,7 +9148,7 @@ function AdminMembersPageContent() {
                                           [trainingFieldActiveDate]: { trainingFieldId: field.id, trainingFieldPieceIds: [] },
                                         }));
                                       }}
-                                      disabled={trainingDaysEditorSaving || trainingFieldsLoading || fieldConflictsLoading || isWholeFieldConflicted}
+                                      disabled={trainingDaysEditorSaving || trainingFieldsLoading || fieldConflictsLoading || trainingFieldBulkApplying || isWholeFieldConflicted}
                                       title={isWholeFieldConflicted ? "Целият терен е зает в избрания час" : undefined}
                                       style={{
                                         border: 0,
@@ -9172,7 +9219,7 @@ function AdminMembersPageContent() {
                                                   ) };
                                                 });
                                               }}
-                                              disabled={trainingDaysEditorSaving || trainingFieldsLoading || fieldConflictsLoading || isPieceConflicted}
+                                              disabled={trainingDaysEditorSaving || trainingFieldsLoading || fieldConflictsLoading || trainingFieldBulkApplying || isPieceConflicted}
                                               style={{
                                                 minWidth: 0,
                                                 border: 0,
@@ -9340,6 +9387,7 @@ function AdminMembersPageContent() {
                         onClick={() => void (trainingDaysEditorMode === "createGroup" ? saveTrainingDaysForSelectedGroups() : saveTrainingDaysFromTrainingModal())}
                         disabled={
                           trainingDaysEditorSaving ||
+                          trainingFieldBulkApplying ||
                           trainingDaysEditorLoading ||
                           (trainingDaysEditorMode !== "createGroup" && isTrainingDaysScheduleUnchanged) ||
                           (trainingDaysEditorMode !== "createGroup" &&
