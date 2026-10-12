@@ -39,10 +39,9 @@ export async function GET(
   const coachGroupId = coachGroupIdRaw && coachGroupIdRaw.trim() ? coachGroupIdRaw.trim() : null;
 
   try {
-    const excludeCoachPageMessages = !coachGroupId && session.roles.includes("coach") && !session.roles.includes("admin");
     const [notifications, unreadCount] = await Promise.all([
-      getClubAdminNotifications({ clubId, playerId, coachGroupId, excludeCoachPageMessages }),
-      getClubAdminUnreadCount({ clubId, playerId, coachGroupId, excludeCoachPageMessages }),
+      getClubAdminNotifications({ clubId, playerId, coachGroupId }),
+      getClubAdminUnreadCount({ clubId, playerId, coachGroupId }),
     ]);
 
     const normalizedNotifications = Array.isArray(notifications)

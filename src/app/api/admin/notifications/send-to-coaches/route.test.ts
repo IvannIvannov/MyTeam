@@ -9,11 +9,11 @@ vi.mock("@/lib/push/adminHistory", () => ({ saveAdminNotificationHistory: mocks.
 vi.mock("@/lib/push/adminService", () => ({ sendPushToClubAdmins: mocks.push }));
 vi.mock("@/lib/push/templates", () => ({ buildNotificationPayload: mocks.template }));
 
-function request() {
+function request(includeCoachGroupPages = true) {
   return new NextRequest("http://localhost/api/admin/notifications/send-to-coaches", {
     method: "POST",
     headers: { cookie: "admin_session=test", "Content-Type": "application/json" },
-    body: JSON.stringify({ clubIds: ["club"], message: "Hello", includeCoachGroupPages: true }),
+    body: JSON.stringify({ clubIds: ["club"], message: "Hello", includeCoachGroupPages }),
   });
 }
 
@@ -35,6 +35,25 @@ describe("admin broadcast sender", () => {
         payload: expect.objectContaining({ body: "Hello" }),
       }));
     }
+  });
+
+  it("sends exactly one copy per scope with three coach groups", async () => {
+    mocks.clubs.mockResolvedValue([{ id: "club", coachGroups: ["one", "two", "three"].map(id => ({ id })) }]);
+    expect((await POST(request())).status).toBe(200);
+    expect(mocks.history).toHaveBeenCalledTimes(4);
+    expect(mocks.push).toHaveBeenCalledTimes(4);
+    for (const scope of [null, "one", "two", "three"]) {
+      expect(mocks.history.mock.calls.filter(([input]) => input.coachGroupId === scope)).toHaveLength(1);
+      expect(mocks.push.mock.calls.filter(([, , coachGroupId]) => coachGroupId === scope)).toHaveLength(1);
+    }
+  });
+
+  it("sends only the main-page copy when coach pages are disabled", async () => {
+    expect((await POST(request(false))).status).toBe(200);
+    expect(mocks.history).toHaveBeenCalledTimes(1);
+    expect(mocks.history).toHaveBeenCalledWith(expect.objectContaining({ coachGroupId: null }));
+    expect(mocks.push).toHaveBeenCalledTimes(1);
+    expect(mocks.push).toHaveBeenCalledWith("club", expect.any(Object), null);
   });
 
   it("rejects a coach login before broadcasting", async () => {

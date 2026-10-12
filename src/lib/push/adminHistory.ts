@@ -43,10 +43,9 @@ export async function getClubAdminNotifications(input: {
   clubId: string;
   playerId?: string | null;
   coachGroupId?: string | null;
-  excludeCoachPageMessages?: boolean;
 }) {
   const where: Record<string, unknown> = { clubId: input.clubId };
-  if (input.excludeCoachPageMessages && !input.coachGroupId) {
+  if (!input.coachGroupId) {
     where.NOT = { type: { in: ["admin_message", "myteam_message"] }, coachGroupId: { not: null } };
   }
   if (input.playerId) {
@@ -84,10 +83,9 @@ export async function getClubAdminUnreadCount(input: {
   clubId: string;
   playerId?: string | null;
   coachGroupId?: string | null;
-  excludeCoachPageMessages?: boolean;
 }) {
   const where: Record<string, unknown> = { clubId: input.clubId, readAt: null };
-  if (input.excludeCoachPageMessages && !input.coachGroupId) {
+  if (!input.coachGroupId) {
     where.NOT = { type: { in: ["admin_message", "myteam_message"] }, coachGroupId: { not: null } };
   }
   if (input.playerId) {
@@ -109,10 +107,9 @@ export async function markClubAdminNotificationsRead(input: {
   clubId: string;
   playerId?: string | null;
   coachGroupId?: string | null;
-  excludeCoachPageMessages?: boolean;
 }) {
   const where: Record<string, unknown> = { clubId: input.clubId, readAt: null };
-  if (input.excludeCoachPageMessages && !input.coachGroupId) {
+  if (!input.coachGroupId) {
     where.NOT = { type: { in: ["admin_message", "myteam_message"] }, coachGroupId: { not: null } };
   }
   if (input.playerId) {
