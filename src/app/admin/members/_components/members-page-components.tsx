@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { NotificationText } from "@/components/NotificationText";
 import { useRouter } from "next/navigation";
 import type {
   AttendanceReportData,
@@ -2222,7 +2223,7 @@ function MemberDetailModal({
                         <h3>{notif.title}</h3>
                         {!notif.readAt ? <span className="amp-member-notification-new" aria-label="Ново" /> : null}
                       </div>
-                      <p>{notif.body}</p>
+                      <p><NotificationText text={notif.body} /></p>
                       <div className="amp-member-notification-meta">
                         {typeof notif.teamGroup === "number" ? <span>Набор: {notif.teamGroup}</span> : null}
                         {Array.isArray(notif.trainingGroups) && notif.trainingGroups.length > 0 ? (
