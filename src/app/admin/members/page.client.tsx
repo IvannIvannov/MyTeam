@@ -284,43 +284,43 @@ function CustomTrainingGroupColorPicker({
   groups: CustomTrainingGroup[];
   excludeGroupId?: string;
 }) {
-  const colorTakenByOther = (hex: string): string | null => {
-    const match = groups.find(
-      (g) =>
-        (g.coachGroupId ?? null) === coachScopeKey &&
-        isCustomTrainingGroupPaletteColor(g.color) &&
-        g.color === hex &&
-        (!excludeGroupId || g.id !== excludeGroupId),
+  const availableColors = useMemo(() => {
+    const usedColors = new Set(
+      groups.filter(
+        (g) =>
+          (g.coachGroupId ?? null) === coachScopeKey &&
+          isCustomTrainingGroupPaletteColor(g.color) &&
+          (!excludeGroupId || g.id !== excludeGroupId),
+      ).map((g) => g.color),
     );
-    return match ? match.name : null;
-  };
+    return CUSTOM_TRAINING_GROUP_COLOR_PALETTE.filter((hex) => !usedColors.has(hex));
+  }, [groups, coachScopeKey, excludeGroupId]);
+
+  useEffect(() => {
+    if (!disabled && availableColors.length > 0 && !availableColors.some((hex) => hex === value)) {
+      onChange(availableColors[0]);
+    }
+  }, [availableColors, disabled, onChange, value]);
 
   return (
     <div className="amp-edit-field" style={{ marginTop: 10 }}>
       <span className="amp-lbl">Цвят на групата</span>
       <div className="amp-custom-group-color-swatches" role="radiogroup" aria-label="Цвят на групата">
-        {CUSTOM_TRAINING_GROUP_COLOR_PALETTE.map((hex) => {
-          const takenBy = colorTakenByOther(hex);
+        {availableColors.map((hex) => {
           const isSelected = value === hex;
-          const isDisabled = Boolean(disabled) || (takenBy !== null && !isSelected);
-          const btn = (
+          return (
             <button
               key={hex}
               type="button"
               role="radio"
               aria-checked={isSelected}
-              aria-label={takenBy && !isSelected ? "Зает цвят" : `Цвят ${hex}`}
-              disabled={isDisabled}
-              className={`amp-custom-group-color-swatch${isSelected ? " is-selected" : ""}${takenBy && !isSelected ? " is-taken" : ""}`}
+              aria-label={`Цвят ${hex}`}
+              disabled={disabled}
+              className={`amp-custom-group-color-swatch${isSelected ? " is-selected" : ""}`}
               style={{ backgroundColor: hex, ...(hex === "#FAFAFA" && !isSelected ? { borderColor: "rgba(0,0,0,0.35)" } : {}) }}
               onClick={() => onChange(hex)}
             />
           );
-          return takenBy && !isSelected ? (
-            <span key={hex} className="amp-color-swatch-tooltip-wrap" data-tooltip={`Използва се от ${takenBy}`}>
-              {btn}
-            </span>
-          ) : btn;
         })}
       </div>
     </div>
@@ -3501,6 +3501,7 @@ function AdminMembersPageContent() {
         });
         if (!response.ok) {
           const payload = await response.json().catch(() => ({}));
+          if (response.status === 400) await loadCustomTrainingGroups();
           throw new Error(payload?.error || "Failed to create custom training group.");
         }
         setTrainingGroupCreateOpen(false);
@@ -3567,6 +3568,7 @@ function AdminMembersPageContent() {
         );
         if (!response.ok) {
           const payload = await response.json().catch(() => ({}));
+          if (response.status === 400) await loadCustomTrainingGroups();
           throw new Error(payload?.error || "Failed to edit custom training group.");
         }
         setTrainingGroupEditOpen(false);
