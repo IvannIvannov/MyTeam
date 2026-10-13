@@ -1,3 +1,4 @@
+import { TRAINING_SELECTION_WINDOW_DAYS } from "@/lib/trainingScheduleWindow";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { sendPushToClubAdmins } from "@/lib/push/adminService";
@@ -19,7 +20,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const FIXED_TIME_ZONE = "Europe/Sofia";
-const TRAINING_SELECTION_WINDOW_DAYS = 30;
+
 const OPT_OUT_REASON_LABELS_BG = {
   injury: "Контузия",
   sick: "Болен",

@@ -1,3 +1,4 @@
+import { TRAINING_SELECTION_WINDOW_DAYS } from "@/lib/trainingScheduleWindow";
 import { NextRequest, NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
@@ -36,7 +37,7 @@ export async function GET(request: NextRequest, context: Context) {
     const original = trainings.filter((t) => t.date === date).sort((a, b) => a.createdAt.localeCompare(b.createdAt))[0];
     return { ...e, trainingDate: date, scopeKey: e.scopeKey === `coach_group:${group.id}` && original ? `${e.scopeKey}:session:${original.id}` : e.scopeKey };
   });
-  return NextResponse.json({ trainings, limitedEvents, recurrences: group.trainingRecurrences ?? [], fields, version: group.updatedAt.toISOString(), trainingDates: group.trainingDates, trainingDateTimes: group.trainingDateTimes, trainingWindowDays: 30 });
+  return NextResponse.json({ trainings, limitedEvents, recurrences: group.trainingRecurrences ?? [], fields, version: group.updatedAt.toISOString(), trainingDates: group.trainingDates, trainingDateTimes: group.trainingDateTimes, trainingWindowDays: TRAINING_SELECTION_WINDOW_DAYS });
 }
 
 export async function PUT(request: NextRequest, context: Context) {
@@ -75,11 +76,11 @@ export async function PUT(request: NextRequest, context: Context) {
       if (recurringSlots.has(slot)) throw new Error("Duplicate recurring occurrence");
       recurringSlots.add(slot);
     }
-    const upper = isoDateToUtcMidnight(today).getTime() + 29 * 86400000;
+    const upper = isoDateToUtcMidnight(today).getTime() + (TRAINING_SELECTION_WINDOW_DAYS - 1) * 86400000;
     const hasFields = await clubHasTrainingFields(group.clubId);
     for (let i = 0; i < trainings.length; i++) {
       const item = trainings[i];
-      if (item.date < today || isoDateToUtcMidnight(item.date).getTime() > upper) throw new Error("Training dates must be within the next 30 days");
+      if (item.date < today || isoDateToUtcMidnight(item.date).getTime() > upper) throw new Error(`Training dates must be within the next ${TRAINING_SELECTION_WINDOW_DAYS} days`);
       if (hasFields && !item.trainingFieldId) throw new Error("Изберете терен за всяка тренировка.");
       await verifyTrainingFieldSelection(group.clubId, item);
       for (let j = 0; j < i; j++) if (coachTrainingsConflict(item, trainings[j])) throw new Error(`Теренът е зает на ${item.date} от ${trainings[j].trainingTime}.`);

@@ -1,10 +1,11 @@
+import { TRAINING_SELECTION_WINDOW_DAYS } from "@/lib/trainingScheduleWindow";
 import type { Member, MemberCard, PaymentLog, PlayerStatus, StatusMeta, TrainingFieldSelection, TrainingTimeMode } from "../_types/members-page-types";
 import { isCustomTrainingGroupPaletteColor } from "@/lib/customTrainingGroupColors";
 
 // Reports-related imports
 const MONTHS = ["Януари", "Февруари", "Март", "Април", "Май", "Юни", "Юли", "Август", "Септември", "Октомври", "Ноември", "Декември"];
 
-const TRAINING_SELECTION_WINDOW_DAYS = 30;
+
 
 const TRAINING_TIME_REGEX = /^([01]\d|2[0-3]):([0-5]\d)$/;
 

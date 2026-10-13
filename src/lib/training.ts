@@ -1,3 +1,4 @@
+import { TRAINING_SELECTION_WINDOW_DAYS } from "@/lib/trainingScheduleWindow";
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
 const WEEKDAY_TO_INDEX: Record<string, number> = {
@@ -127,7 +128,7 @@ export function getConfiguredTrainingDates(input: {
   timeZone: string;
   maxDays?: number;
 }): string[] {
-  const maxDays = Number.isInteger(input.maxDays) && Number(input.maxDays) > 0 ? Number(input.maxDays) : 30;
+  const maxDays = Number.isInteger(input.maxDays) && Number(input.maxDays) > 0 ? Number(input.maxDays) : TRAINING_SELECTION_WINDOW_DAYS;
   const todayIso = getTodayIsoDateInTimeZone(input.timeZone);
   const start = isoDateToUtcMidnight(todayIso).getTime();
   const end = start + (maxDays - 1) * MS_PER_DAY;

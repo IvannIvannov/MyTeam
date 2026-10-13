@@ -7414,7 +7414,7 @@ function AdminMembersPageContent() {
                       {false && trainingDaysEditorOpen && (
                         <div className="amp-training-days-editor">
                           <div className="amp-training-days-editor-header">
-                            <span className="amp-lbl">Избери тренировъчни дни (следващи 30 дни)</span>
+                            <span className="amp-lbl">Избери тренировъчни дни (следващи 3 месеца)</span>
                             <span className="amp-lbl">Избрани: {schedulerForm.trainingDates.length}</span>
                           </div>
                           <div className="amp-training-calendar">
@@ -8577,7 +8577,7 @@ function AdminMembersPageContent() {
                           ? "Задай тренировъчни дни за сборен отбор"
                           : trainingDaysEditorMode === "coachGroup"
                             ? "Тренировъчен график"
-                            : "Избери тренировъчни дни (следващи 30 дни)"}
+                            : "Избери тренировъчни дни (следващи 3 месеца)"}
                     </span>
                     {trainingDaysEditorMode !== "createGroup" && trainingDaysSingleEditDate === null && (
                       <span className="amp-lbl" style={{ textAlign: "center" }}>Избрани: {schedulerForm.trainingDates.length}</span>
