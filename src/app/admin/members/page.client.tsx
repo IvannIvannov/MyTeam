@@ -2301,14 +2301,20 @@ function AdminMembersPageContent() {
   );
   const weekSessionColorOptions = useMemo(() => {
     const seen = new Map<string, string>();
+    for (const group of customTrainingGroups) {
+      if ((group.coachGroupId ?? null) === customTrainingGroupCoachScope && group.color && isCustomTrainingGroupPaletteColor(group.color)) {
+        seen.set(group.color, group.name);
+      }
+    }
     for (const s of trainingWeekSessions) {
+      if (coachGroupId) continue;
       if (s.color && isCustomTrainingGroupPaletteColor(s.color) && !seen.has(s.color)) {
         const group = customTrainingGroups.find((g) => g.color === s.color);
         seen.set(s.color, group?.name ?? "");
       }
     }
     return Array.from(seen.entries()).map(([color, label]) => ({ color, label }));
-  }, [trainingWeekSessions, customTrainingGroups]);
+  }, [trainingWeekSessions, customTrainingGroups, customTrainingGroupCoachScope, coachGroupId]);
   const noFreeCustomTrainingGroupColor = useMemo(() => {
     if (!isCustomTrainingGroupMode) return false;
     const used = new Set(
@@ -3323,13 +3329,13 @@ function AdminMembersPageContent() {
       return;
     }
 
-    if (trainingGroupMode !== "custom_group") {
+    if (trainingGroupMode !== "custom_group" && !coachGroupId) {
       setCustomTrainingGroups([]);
       return;
     }
 
     void loadCustomTrainingGroups();
-  }, [clubId, loadCustomTrainingGroups, trainingGroupMode]);
+  }, [clubId, loadCustomTrainingGroups, trainingGroupMode, coachGroupId]);
 
   const loadCoachGroups = async (): Promise<CoachGroup[]> => {
     if (!clubId) return [];
@@ -4206,6 +4212,7 @@ function AdminMembersPageContent() {
         if (trainingDaysEditorMode === "customGroup") {
           await loadCustomTrainingGroups();
           await fetchTrainingAttendance(trainingAttendanceDate);
+          await fetchTrainingWeekSessions();
           setTrainingDaysEditorOpen(false);
         } else {
           await loadTrainingScheduleGroups();
@@ -4959,7 +4966,6 @@ function AdminMembersPageContent() {
   };
 
   const openTrainingDaysEditorForCurrentScope = async () => {
-    if (coachGroupId) { await openTrainingDaysEditor("coachGroup"); return; }
     if (trainingAttendanceView === "trainingGroups") {
       if (!selectedTrainingGroupId) {
         setTrainingAttendanceError("Изберете група.");
@@ -4968,17 +4974,18 @@ function AdminMembersPageContent() {
       await openTrainingDaysEditor(isCustomTrainingGroupMode ? "customGroup" : "trainingGroup");
       return;
     }
+    if (coachGroupId) { await openTrainingDaysEditor("coachGroup"); return; }
     await openTrainingDaysEditor("teamGroup");
   };
 
   const openSingleTrainingDayEditForCurrentScope = async (date: string) => {
     if (trainingDayDetailsTab.startsWith("coach-")) { await openTrainingDaysEditor("coachGroup", date, { groupId: trainingDayDetailsTab.slice(6, 42), sessionId: trainingDayDetailsTab.slice(43) }); return; }
-    if (coachGroupId) { await openTrainingDaysEditor("coachGroup", date); return; }
     if (trainingAttendanceView === "trainingGroups") {
       if (!selectedTrainingGroupId) return;
       await openTrainingDaysEditor(isCustomTrainingGroupMode ? "customGroup" : "trainingGroup", date);
       return;
     }
+    if (coachGroupId) { await openTrainingDaysEditor("coachGroup", date); return; }
     await openTrainingDaysEditor("teamGroup", date);
   };
 
@@ -7151,8 +7158,6 @@ function AdminMembersPageContent() {
                 <div className="amp-training-week-panel">
                   {trainingWeekLoading ? (
                     <p className="amp-empty amp-empty--modal">Зареждане...</p>
-                  ) : trainingWeekSessions.length === 0 ? (
-                    <p className="amp-empty amp-empty--modal">Няма насрочени събития за следващите 7 дни.</p>
                   ) : (
                     <>
                       {weekSessionColorOptions.length > 0 && (
@@ -7193,6 +7198,9 @@ function AdminMembersPageContent() {
                           ))}
                         </div>
                       )}
+                      {trainingWeekSessions.length === 0 && (
+                        <p className="amp-empty amp-empty--modal">Няма насрочени събития за следващите 7 дни.</p>
+                      )}
                       <WeeklyGrid
                         dates={trainingWeekDates}
                         sessions={(() => {
@@ -7201,7 +7209,7 @@ function AdminMembersPageContent() {
                             ? (weekColorFilter ?? selectedCustomGroup?.color ?? singleGroupColor ?? null)
                             : null;
                           const base = weekColorFilter
-                            ? trainingWeekSessions.filter((s) => s.color === weekColorFilter || s.eventType === "match")
+                            ? trainingWeekSessions.filter((s) => s.color === weekColorFilter)
                             : trainingWeekSessions;
                           return matchColor
                             ? base.map((s) => s.eventType === "match" && !s.color ? { ...s, color: matchColor } : s)
