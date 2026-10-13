@@ -4,6 +4,8 @@ interface ReportPaymentLog {
   id: string;
   paidFor: string;
   paidAt: string;
+  amount: string | null;
+  currency: string;
 }
 
 interface ReportPlayer {
@@ -11,6 +13,8 @@ interface ReportPlayer {
   fullName: string;
   teamGroup: number | null;
   paymentAmount: string | null;
+  firstBillingMonth: string | null;
+  paymentWorkflow: string;
   paymentLogs: ReportPaymentLog[];
   paymentWaivers: Array<{ waivedFor: string }>;
   isActive?: boolean;

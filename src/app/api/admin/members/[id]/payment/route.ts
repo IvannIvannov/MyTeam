@@ -13,6 +13,7 @@ import {
   compareYearMonth,
 } from "@/lib/paymentStatus";
 import { updatePlayerStatusAfterPayment } from "@/lib/memberPayment";
+import { resolveManualPaymentAmount } from "@/lib/manualPaymentAmounts";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -62,13 +63,17 @@ export async function POST(
           take: 1,
         },
         club: {
-          select: { paymentWorkflow: true },
+          select: { paymentWorkflow: true, defaultPaymentAmount: true },
         },
       },
     });
 
     if (!player) {
       return NextResponse.json({ error: "Player not found" }, { status: 404 });
+    }
+    const amount = resolveManualPaymentAmount(player.paymentAmount, player.club.defaultPaymentAmount);
+    if (amount === null) {
+      return NextResponse.json({ error: "Payment amount is not configured." }, { status: 400 });
     }
 
     const isRollingThirtyDay = player.club.paymentWorkflow === "rolling_30_days";
@@ -167,6 +172,8 @@ export async function POST(
           playerId: id,
           paidFor: paidForDate,
           recordedBy: "admin",
+          amount,
+          currency: "EUR",
         },
       });
 
@@ -219,6 +226,8 @@ export async function POST(
         id: paymentLog.id,
         paidFor: paymentLog.paidFor,
         paidAt: paymentLog.paidAt,
+        amount: paymentLog.amount,
+        currency: paymentLog.currency,
       },
       push: pushResult,
     });
@@ -255,6 +264,8 @@ export async function GET(
           paidFor: true,
           paidAt: true,
           recordedBy: true,
+          amount: true,
+          currency: true,
         },
       }),
       prisma.paymentWaiver.findMany({

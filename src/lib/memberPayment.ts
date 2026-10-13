@@ -214,6 +214,8 @@ export async function finalizeResolvedMemberPayment(input: {
   playerId: string;
   paidDates: Date[];
   recordedBy: string;
+  amountPerPeriod: string;
+  currency: string;
   trainingCredits?: number | null;
 }): Promise<{ paymentLogIds: string[] }> {
   const player = await input.tx.player.findUnique({
@@ -301,6 +303,8 @@ export async function finalizeResolvedMemberPayment(input: {
           playerId: input.playerId,
           paidFor,
           recordedBy: input.recordedBy,
+          amount: input.amountPerPeriod,
+          currency: input.currency,
         },
         select: { id: true },
       }),

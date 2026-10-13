@@ -19,6 +19,7 @@ import {
   type YearMonth,
 } from "@/lib/paymentStatus";
 import { updatePlayerStatusAfterPayment } from "@/lib/memberPayment";
+import { resolveManualPaymentAmount } from "@/lib/manualPaymentAmounts";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -38,6 +39,10 @@ export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ cardCode: string }> },
 ) {
+  const token = request.cookies.get("admin_session")?.value;
+  if (!token || !(await verifyAdminToken(token))) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
   try {
     const { cardCode } = await params;
     const normalizedCardCode = cardCode.trim().toUpperCase();
@@ -67,9 +72,10 @@ export async function POST(
         player: {
           select: {
             firstBillingMonth: true,
+            paymentAmount: true,
             remainingTrainingCredits: true,
             club: {
-              select: { paymentWorkflow: true },
+              select: { paymentWorkflow: true, defaultPaymentAmount: true },
             },
           },
         },
@@ -190,12 +196,19 @@ export async function POST(
       return NextResponse.json({ error: "This period is already paid" }, { status: 400 });
     }
 
+    const amount = resolveManualPaymentAmount(card.player.paymentAmount, card.player.club.defaultPaymentAmount);
+    if (amount === null) {
+      return NextResponse.json({ error: "Няма конфигурирана сума за плащане." }, { status: 400 });
+    }
+
     await prisma.$transaction(async (tx) => {
       await tx.paymentLog.createMany({
         data: monthsToCreate.map((date) => ({
           playerId: card.playerId,
           paidFor: date,
           recordedBy: "member",
+          amount,
+          currency: "EUR",
         })),
       });
 
