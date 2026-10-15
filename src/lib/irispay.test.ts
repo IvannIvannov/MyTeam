@@ -5,6 +5,7 @@ import {
   createIrisPayment,
   deactivateIrisPayment,
   getIrisPayRepayable,
+  getIrisPaymentStatus,
   isReusableIrisCreatePayload,
 } from "./irispay";
 
@@ -38,6 +39,46 @@ describe("IRISPay configuration", () => {
     delete process.env.IRISPAY_REPAYABLE;
 
     expect(getIrisPayRepayable()).toBe(true);
+  });
+
+  it("uses the reusable status endpoint with the Location key and preserves attempts", async () => {
+    const payload = {
+      paymentHash: "hash/1", status: "CONFIRMED",
+      attempts: [
+        { date: "2026-10-15T10:00:00Z", status: "FAILED", payerIban: null,
+          payerBank: null, payerName: null, attemptPaymentHash: "attempt-1" },
+        { date: "2026-10-15T10:01:00Z", status: "CONFIRMED", payerIban: "iban",
+          payerBank: "bank", payerName: "payer", attemptPaymentHash: "attempt-2" },
+      ],
+    };
+    const fetchMock = mockFetch(Response.json(payload));
+
+    await expect(getIrisPaymentStatus("hash/1", true)).resolves.toEqual(payload);
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://paybyclick.irispay.bg/backend/payment/status/repayable/hash%2F1",
+      expect.objectContaining({ method: "GET", cache: "no-store",
+        headers: { accept: "application/json", "X-Location-Key": "merchant/key with spaces" } }),
+    );
+  });
+
+  it("keeps single-use status requests on the original endpoint without a Location key", async () => {
+    delete process.env.IRISPAY_MERCHANT_KEY;
+    const fetchMock = mockFetch(Response.json({ status: "WAITING" }));
+
+    await expect(getIrisPaymentStatus("hash/1", false)).resolves.toEqual({ status: "WAITING" });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://paybyclick.irispay.bg/backend/payment/status/hash%2F1",
+      expect.objectContaining({ headers: { accept: "application/json" } }),
+    );
+  });
+
+  it("does not request reusable status without a configured Location key", async () => {
+    delete process.env.IRISPAY_MERCHANT_KEY;
+    const fetchMock = mockFetch(Response.json({}));
+    await expect(getIrisPaymentStatus("hash-1", true)).rejects.toThrow("IRISPAY_MERCHANT_KEY");
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("allows IRISPAY_REPAYABLE=false to restore non-repayable links", async () => {

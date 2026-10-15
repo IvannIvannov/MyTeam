@@ -34,6 +34,17 @@ export type IrisStatusResponse = {
   receiverIban?: string;
   status?: string;
   sum?: number;
+  paymentHash?: string;
+  attempts?: IrisPaymentAttempt[];
+};
+
+export type IrisPaymentAttempt = {
+  date: string;
+  status: string;
+  payerBank: string | null;
+  payerIban: string | null;
+  payerName: string | null;
+  attemptPaymentHash: string;
 };
 
 type IrisErrorPayload = {
@@ -205,10 +216,18 @@ export async function createIrisPayment(input: IrisCreatePaymentInput): Promise<
   return payload;
 }
 
-export async function getIrisPaymentStatus(paymentHash: string): Promise<IrisStatusResponse> {
-  const response = await fetch(`${getBaseUrl()}/backend/payment/status/${encodeURIComponent(paymentHash)}`, {
+export async function getIrisPaymentStatus(
+  paymentHash: string,
+  repayable = false,
+): Promise<IrisStatusResponse> {
+  const headers: Record<string, string> = { accept: "application/json" };
+  if (repayable) {
+    headers["X-Location-Key"] = requiredEnv("IRISPAY_MERCHANT_KEY");
+  }
+  const path = repayable ? "status/repayable" : "status";
+  const response = await fetch(`${getBaseUrl()}/backend/payment/${path}/${encodeURIComponent(paymentHash)}`, {
     method: "GET",
-    headers: { accept: "application/json" },
+    headers,
     cache: "no-store",
   });
   return parseIrisJson<IrisStatusResponse>(response);
