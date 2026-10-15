@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { buildYearlyPaymentReport, formatRecordedPaymentAmounts } from "@/lib/yearlyPaymentReport";
 import { NotificationImage } from "@/components/NotificationImage";
 import { NotificationText } from "@/components/NotificationText";
 import { useRouter } from "next/navigation";
@@ -966,6 +967,8 @@ function ReportsDialog({
                   id: String(logRaw.id ?? ""),
                   paidFor: String(logRaw.paidFor ?? ""),
                   paidAt: String(logRaw.paidAt ?? ""),
+                  amount: logRaw.amount == null ? null : String(logRaw.amount),
+                  currency: String(logRaw.currency ?? "EUR"),
                 };
               })
               : [];
@@ -975,6 +978,10 @@ function ReportsDialog({
               fullName: String(raw.fullName ?? ""),
               teamGroup: typeof raw.teamGroup === "number" ? raw.teamGroup : null,
               paymentAmount: raw.paymentAmount === null || raw.paymentAmount === undefined ? null : String(raw.paymentAmount),
+              firstBillingMonth: raw.firstBillingMonth ? String(raw.firstBillingMonth) : null,
+              paymentWorkflow: typeof raw.club === "object" && raw.club !== null
+                ? String((raw.club as Record<string, unknown>).paymentWorkflow ?? "calendar_month")
+                : "calendar_month",
               paymentLogs,
               paymentWaivers: Array.isArray(raw.paymentWaivers)
                 ? raw.paymentWaivers.map((waiver) => ({
@@ -1030,32 +1037,6 @@ function ReportsDialog({
     return latestPaidAt ? latestPaidAt.toLocaleDateString("bg-BG") : null;
   };
 
-  const getPaymentDateForYear = (player: ReportPlayer): string | null => {
-    let latestPaidAt: Date | null = null;
-
-    for (const log of player.paymentLogs ?? []) {
-      const paidForDate = new Date(log.paidFor);
-      const paidAtDate = new Date(log.paidAt);
-      if (Number.isNaN(paidForDate.getTime()) || Number.isNaN(paidAtDate.getTime())) {
-        continue;
-      }
-      if (paidForDate.getFullYear() !== selectedYear) {
-        continue;
-      }
-      if (!latestPaidAt || paidAtDate > latestPaidAt) {
-        latestPaidAt = paidAtDate;
-      }
-    }
-
-    return latestPaidAt ? latestPaidAt.toLocaleDateString("bg-BG") : null;
-  };
-
-  const formatPaymentAmount = (value: string | null): string => {
-    if (!value) return "€0.00";
-    const parsed = Number(value.replace(",", "."));
-    return Number.isFinite(parsed) ? `€${parsed.toFixed(2)}` : "€0.00";
-  };
-
   const normalizePlayerName = (name: string) =>
     name.normalize("NFC").toLocaleLowerCase("bg-BG").trim().replace(/\s+/g, " ");
   const searchTerms = normalizePlayerName(playerSearch).split(" ").filter(Boolean);
@@ -1082,7 +1063,12 @@ function ReportsDialog({
       id: player.id,
       name: player.fullName,
       group: player.teamGroup,
-      amount: formatPaymentAmount(player.paymentAmount),
+      amount: formatRecordedPaymentAmounts(player.paymentLogs.filter((log) => {
+        const period = new Date(log.paidFor);
+        const paidAt = new Date(log.paidAt);
+        return period.getUTCFullYear() === selectedYear && period.getUTCMonth() === selectedMonthIdx &&
+          !Number.isNaN(paidAt.getTime()) && paidAt <= now;
+      })),
       date: paidDate ?? "—",
       paid: Boolean(paidDate),
       isActive: player.isActive !== false,
@@ -1090,15 +1076,11 @@ function ReportsDialog({
   });
 
   const rowsYearly = reportPlayers.map((player) => {
-    const paidDate = getPaymentDateForYear(player);
     return {
       id: player.id,
       name: player.fullName,
-      group: player.teamGroup,
-      amount: formatPaymentAmount(player.paymentAmount),
-      date: paidDate ?? "—",
-      paid: Boolean(paidDate),
       isActive: player.isActive !== false,
+      ...buildYearlyPaymentReport(player, selectedYear, now),
     };
   });
 
@@ -1114,8 +1096,8 @@ function ReportsDialog({
   });
 
   const filteredYearly = rowsYearly.filter((row) => {
-    if (statusFilter === "paid") return row.paid;
-    if (statusFilter === "unpaid") return !row.paid;
+    if (statusFilter === "paid") return row.status === "paid";
+    if (statusFilter === "unpaid") return row.status === "unpaid";
     return true;
   });
 
@@ -1128,10 +1110,9 @@ function ReportsDialog({
       .replace(/'/g, "&#39;");
 
   const printReport = (kind: ReportKind) => {
-    const baseRows = kind === "monthly" ? rows : rowsYearly;
-    const rowsToPrint = kind === "monthly" ? filtered : filteredYearly;
-    const paid = baseRows.filter((row) => row.paid).length;
-    const totalRows = baseRows.length;
+    const yearly = kind === "yearly";
+    const paid = yearly ? rowsYearly.reduce((sum, row) => sum + row.paidDueCount, 0) : paidCount;
+    const totalRows = yearly ? rowsYearly.reduce((sum, row) => sum + row.dueCount, 0) : rows.length;
     const percent = totalRows > 0 ? Math.round((paid / totalRows) * 100) : 0;
     const unpaid = totalRows - paid;
     const periodTitle = kind === "monthly" ? `${month} ${year}` : `Година ${year}`;
@@ -1145,8 +1126,17 @@ function ReportsDialog({
 
     if (typeof window === "undefined") return;
 
-    const tableRowsHtml = rowsToPrint.length > 0
-      ? rowsToPrint
+    const monthLabels = { paid: "Платено", unpaid: "Неплатено", exempt: "Освободен", not_due: "Не се дължи" };
+    const yearlyStatusLabels = { paid: "Всички дължими такси са платени", unpaid: "Има неплатени такси", not_due: "Няма дължими такси", activity: "Платежна активност" };
+    const tableRowsHtml = yearly
+      ? filteredYearly.length > 0 ? filteredYearly.map((row, idx) => `
+          <tr><td>${idx + 1}</td><td>${escapeHtml(row.name)}${row.isActive ? "" : " (неактивен)"}</td>
+          ${row.months.map((month) => `<td>${!row.calendarBilling && month.status === "not_due" ? "—" : monthLabels[month.status]}${month.paidAt ? `<br><strong>${escapeHtml(month.amountLabel)}</strong><br><small>${escapeHtml(month.paidAt.toLocaleDateString("bg-BG", { timeZone: "Europe/Sofia" }))}</small>` : ""}</td>`).join("")}
+          <td>${row.calendarBilling ? `${row.paidDueCount} / ${row.dueCount}` : "—"}</td>
+          <td>${row.calendarBilling ? row.missingCount : "—"}</td><td>${escapeHtml(row.totalAmountLabel)}</td><td>${yearlyStatusLabels[row.status]}</td></tr>
+        `).join("") : `<tr><td colspan="18" style="text-align:center;">Няма данни за избраните филтри.</td></tr>`
+      : filtered.length > 0
+      ? filtered
         .map((row, idx) => `
             <tr>
               <td>${idx + 1}</td>
@@ -1174,7 +1164,8 @@ function ReportsDialog({
     table { width: 100%; border-collapse: collapse; font-size: 13px; }
     th, td { border: 1px solid #e5e7eb; padding: 7px 8px; text-align: left; }
     th { background: #f9fafb; }
-    @media print { .pt { display: none; } @page { margin: 10mm; } }
+    ${yearly ? "table { font-size: 9px; } th, td { padding: 4px; }" : ""}
+    @media print { .pt { display: none; } @page { ${yearly ? "size: A3 landscape;" : ""} margin: 10mm; } }
   </style>
 </head>
 <body>
@@ -1185,14 +1176,16 @@ function ReportsDialog({
   <div style="font-size:22px;font-weight:700;margin:0 0 4px;">${kind === "monthly" ? "Месечен отчет" : "Годишен отчет"}</div>
   <p style="margin:0 0 14px;color:#6b7280;font-size:13px;">Период: ${escapeHtml(periodTitle)}</p>
   ${scopeTitle ? `<p style="margin:0 0 14px;color:#6b7280;font-size:13px;">${escapeHtml(scopeTitle)}</p>` : ""}
+  ${yearly ? `<p style="font-size:12px;">Към ${escapeHtml(now.toLocaleDateString("bg-BG", { timeZone: "Europe/Sofia" }))}. Платени / дължими месечни такси; бъдещите месеци, освобождаванията и месеците преди началото на таксуване не участват в събираемостта. Предплатените месеци са показани, но участват в събираемостта, когато станат дължими. Филтър: ${statusFilter === "all" ? "Всички" : statusFilter === "paid" ? "Всички дължими такси са платени" : "Има неплатени такси"}. Обобщението обхваща всички избрани играчи преди филтъра за статус.</p>
+  <p style="font-size:12px;">Сумите са записаните при плащане стойности, а не текущата такса на играча. Старите плащания без записана сума са обозначени като неизвестни и не се приемат за нула. Общите суми обхващат показаната година по платения период, включително предплатените месеци. За таксуване извън календарни месеци се показва само платежна активност, без оценка на задълженията. Историческите промени в членството и групите не са налични; използват се текущите играчи и групи.</p>` : ""}
   <div style="display:flex;gap:12px;margin:0 0 16px;flex-wrap:wrap;">
-    <div style="border:1px solid #e5e7eb;border-radius:8px;padding:8px 10px;font-size:13px;min-width:140px;">Платили: <strong>${paid}</strong> / ${totalRows}</div>
-    <div style="border:1px solid #e5e7eb;border-radius:8px;padding:8px 10px;font-size:13px;min-width:140px;">Събираемост: <strong>${percent}%</strong></div>
-    <div style="border:1px solid #e5e7eb;border-radius:8px;padding:8px 10px;font-size:13px;min-width:140px;">Неплатили: <strong>${unpaid}</strong></div>
+    <div style="border:1px solid #e5e7eb;border-radius:8px;padding:8px 10px;font-size:13px;min-width:140px;">${yearly ? "Платени / дължими такси" : "Платили"}: <strong>${paid}</strong> / ${totalRows}</div>
+    <div style="border:1px solid #e5e7eb;border-radius:8px;padding:8px 10px;font-size:13px;min-width:140px;">Събираемост: <strong>${yearly && totalRows === 0 ? "—" : `${percent}%`}</strong></div>
+    <div style="border:1px solid #e5e7eb;border-radius:8px;padding:8px 10px;font-size:13px;min-width:140px;">${yearly ? "Неплатени такси" : "Неплатили"}: <strong>${unpaid}</strong></div>
   </div>
   <table>
     <thead>
-      <tr><th>#</th><th>Име</th><th>Сума</th><th>Дата на плащане</th><th>Статус</th></tr>
+      ${yearly ? `<tr><th>#</th><th>Име</th>${MONTHS.map((name) => `<th>${escapeHtml(name)}</th>`).join("")}<th>Платени / дължими</th><th>Неплатени</th><th>Общо платено</th><th>Статус</th></tr>` : "<tr><th>#</th><th>Име</th><th>Платена сума</th><th>Дата на плащане</th><th>Статус</th></tr>"}
     </thead>
     <tbody>${tableRowsHtml}</tbody>
   </table>

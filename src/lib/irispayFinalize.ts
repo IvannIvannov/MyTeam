@@ -1,4 +1,4 @@
-import { type IrisPayment } from "@prisma/client";
+import { Prisma, type IrisPayment } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import {
   deactivateIrisPayment,
@@ -184,11 +184,18 @@ export async function verifyAndApplyIrisPayment(input: {
       throw new Error("IRIS payment could not be finalized");
     }
 
+    const totalAmount = new Prisma.Decimal(pendingPayment.amount.toString());
+    const amountPerPeriod = totalAmount.div(paidDates.length).toFixed(2);
+    if (!new Prisma.Decimal(amountPerPeriod).mul(paidDates.length).equals(totalAmount)) {
+      throw new Error("IRIS payment amount cannot be allocated exactly across the covered periods");
+    }
     const result = await finalizeResolvedMemberPayment({
       tx,
       playerId: pendingPayment.playerId,
       paidDates,
       recordedBy: "irispay",
+      amountPerPeriod,
+      currency: pendingPayment.currency,
       trainingCredits: pendingPayment.trainingCredits,
     });
 

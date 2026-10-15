@@ -438,6 +438,8 @@ model PaymentLog {
   paidAt     DateTime @default(now()) @map("paid_at") @db.Timestamptz(6)
   recordedBy String   @default("admin") @map("recorded_by")
   paidFor    DateTime @map("paid_for") @db.Timestamptz(6)
+  amount     Decimal? @db.Decimal(10, 2)
+  currency   String   @default("EUR")
   player     Player   @relation(fields: [playerId], references: [id], onDelete: Cascade)
   irisPayment IrisPayment?
 

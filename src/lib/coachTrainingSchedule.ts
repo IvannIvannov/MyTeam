@@ -1,3 +1,4 @@
+import { TRAINING_SELECTION_WINDOW_DAYS } from "@/lib/trainingScheduleWindow";
 import { randomUUID } from "node:crypto";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
@@ -45,7 +46,7 @@ export function parseCoachRecurrences(raw: unknown): CoachTrainingRecurrence[] {
   });
 }
 
-export function expandCoachRecurrences(rules: CoachTrainingRecurrence[], existing: CoachTraining[], today: string, windowDays = 30): CoachTraining[] {
+export function expandCoachRecurrences(rules: CoachTrainingRecurrence[], existing: CoachTraining[], today: string, windowDays = TRAINING_SELECTION_WINDOW_DAYS): CoachTraining[] {
   const result: CoachTraining[] = [];
   for (let day = 0; day < windowDays; day++) {
     const date = new Date(isoDateToUtcMidnight(today).getTime() + day * 86400000).toISOString().slice(0, 10);

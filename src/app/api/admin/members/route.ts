@@ -400,6 +400,8 @@ export async function GET(request: NextRequest) {
             id: true,
             paidFor: true,
             paidAt: true,
+            amount: true,
+            currency: true,
           },
           orderBy: {
             paidAt: "desc",

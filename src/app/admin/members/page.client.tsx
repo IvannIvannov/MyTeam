@@ -284,43 +284,43 @@ function CustomTrainingGroupColorPicker({
   groups: CustomTrainingGroup[];
   excludeGroupId?: string;
 }) {
-  const colorTakenByOther = (hex: string): string | null => {
-    const match = groups.find(
-      (g) =>
-        (g.coachGroupId ?? null) === coachScopeKey &&
-        isCustomTrainingGroupPaletteColor(g.color) &&
-        g.color === hex &&
-        (!excludeGroupId || g.id !== excludeGroupId),
+  const availableColors = useMemo(() => {
+    const usedColors = new Set(
+      groups.filter(
+        (g) =>
+          (g.coachGroupId ?? null) === coachScopeKey &&
+          isCustomTrainingGroupPaletteColor(g.color) &&
+          (!excludeGroupId || g.id !== excludeGroupId),
+      ).map((g) => g.color),
     );
-    return match ? match.name : null;
-  };
+    return CUSTOM_TRAINING_GROUP_COLOR_PALETTE.filter((hex) => !usedColors.has(hex));
+  }, [groups, coachScopeKey, excludeGroupId]);
+
+  useEffect(() => {
+    if (!disabled && availableColors.length > 0 && !availableColors.some((hex) => hex === value)) {
+      onChange(availableColors[0]);
+    }
+  }, [availableColors, disabled, onChange, value]);
 
   return (
     <div className="amp-edit-field" style={{ marginTop: 10 }}>
       <span className="amp-lbl">Цвят на групата</span>
       <div className="amp-custom-group-color-swatches" role="radiogroup" aria-label="Цвят на групата">
-        {CUSTOM_TRAINING_GROUP_COLOR_PALETTE.map((hex) => {
-          const takenBy = colorTakenByOther(hex);
+        {availableColors.map((hex) => {
           const isSelected = value === hex;
-          const isDisabled = Boolean(disabled) || (takenBy !== null && !isSelected);
-          const btn = (
+          return (
             <button
               key={hex}
               type="button"
               role="radio"
               aria-checked={isSelected}
-              aria-label={takenBy && !isSelected ? "Зает цвят" : `Цвят ${hex}`}
-              disabled={isDisabled}
-              className={`amp-custom-group-color-swatch${isSelected ? " is-selected" : ""}${takenBy && !isSelected ? " is-taken" : ""}`}
+              aria-label={`Цвят ${hex}`}
+              disabled={disabled}
+              className={`amp-custom-group-color-swatch${isSelected ? " is-selected" : ""}`}
               style={{ backgroundColor: hex, ...(hex === "#FAFAFA" && !isSelected ? { borderColor: "rgba(0,0,0,0.35)" } : {}) }}
               onClick={() => onChange(hex)}
             />
           );
-          return takenBy && !isSelected ? (
-            <span key={hex} className="amp-color-swatch-tooltip-wrap" data-tooltip={`Използва се от ${takenBy}`}>
-              {btn}
-            </span>
-          ) : btn;
         })}
       </div>
     </div>
@@ -2301,14 +2301,20 @@ function AdminMembersPageContent() {
   );
   const weekSessionColorOptions = useMemo(() => {
     const seen = new Map<string, string>();
+    for (const group of customTrainingGroups) {
+      if ((group.coachGroupId ?? null) === customTrainingGroupCoachScope && group.color && isCustomTrainingGroupPaletteColor(group.color)) {
+        seen.set(group.color, group.name);
+      }
+    }
     for (const s of trainingWeekSessions) {
+      if (coachGroupId) continue;
       if (s.color && isCustomTrainingGroupPaletteColor(s.color) && !seen.has(s.color)) {
         const group = customTrainingGroups.find((g) => g.color === s.color);
         seen.set(s.color, group?.name ?? "");
       }
     }
     return Array.from(seen.entries()).map(([color, label]) => ({ color, label }));
-  }, [trainingWeekSessions, customTrainingGroups]);
+  }, [trainingWeekSessions, customTrainingGroups, customTrainingGroupCoachScope, coachGroupId]);
   const noFreeCustomTrainingGroupColor = useMemo(() => {
     if (!isCustomTrainingGroupMode) return false;
     const used = new Set(
@@ -3323,13 +3329,13 @@ function AdminMembersPageContent() {
       return;
     }
 
-    if (trainingGroupMode !== "custom_group") {
+    if (trainingGroupMode !== "custom_group" && !coachGroupId) {
       setCustomTrainingGroups([]);
       return;
     }
 
     void loadCustomTrainingGroups();
-  }, [clubId, loadCustomTrainingGroups, trainingGroupMode]);
+  }, [clubId, loadCustomTrainingGroups, trainingGroupMode, coachGroupId]);
 
   const loadCoachGroups = async (): Promise<CoachGroup[]> => {
     if (!clubId) return [];
@@ -3501,6 +3507,7 @@ function AdminMembersPageContent() {
         });
         if (!response.ok) {
           const payload = await response.json().catch(() => ({}));
+          if (response.status === 400) await loadCustomTrainingGroups();
           throw new Error(payload?.error || "Failed to create custom training group.");
         }
         setTrainingGroupCreateOpen(false);
@@ -3567,6 +3574,7 @@ function AdminMembersPageContent() {
         );
         if (!response.ok) {
           const payload = await response.json().catch(() => ({}));
+          if (response.status === 400) await loadCustomTrainingGroups();
           throw new Error(payload?.error || "Failed to edit custom training group.");
         }
         setTrainingGroupEditOpen(false);
@@ -4204,6 +4212,7 @@ function AdminMembersPageContent() {
         if (trainingDaysEditorMode === "customGroup") {
           await loadCustomTrainingGroups();
           await fetchTrainingAttendance(trainingAttendanceDate);
+          await fetchTrainingWeekSessions();
           setTrainingDaysEditorOpen(false);
         } else {
           await loadTrainingScheduleGroups();
@@ -4957,7 +4966,6 @@ function AdminMembersPageContent() {
   };
 
   const openTrainingDaysEditorForCurrentScope = async () => {
-    if (coachGroupId) { await openTrainingDaysEditor("coachGroup"); return; }
     if (trainingAttendanceView === "trainingGroups") {
       if (!selectedTrainingGroupId) {
         setTrainingAttendanceError("Изберете група.");
@@ -4966,17 +4974,18 @@ function AdminMembersPageContent() {
       await openTrainingDaysEditor(isCustomTrainingGroupMode ? "customGroup" : "trainingGroup");
       return;
     }
+    if (coachGroupId) { await openTrainingDaysEditor("coachGroup"); return; }
     await openTrainingDaysEditor("teamGroup");
   };
 
   const openSingleTrainingDayEditForCurrentScope = async (date: string) => {
     if (trainingDayDetailsTab.startsWith("coach-")) { await openTrainingDaysEditor("coachGroup", date, { groupId: trainingDayDetailsTab.slice(6, 42), sessionId: trainingDayDetailsTab.slice(43) }); return; }
-    if (coachGroupId) { await openTrainingDaysEditor("coachGroup", date); return; }
     if (trainingAttendanceView === "trainingGroups") {
       if (!selectedTrainingGroupId) return;
       await openTrainingDaysEditor(isCustomTrainingGroupMode ? "customGroup" : "trainingGroup", date);
       return;
     }
+    if (coachGroupId) { await openTrainingDaysEditor("coachGroup", date); return; }
     await openTrainingDaysEditor("teamGroup", date);
   };
 
@@ -7149,8 +7158,6 @@ function AdminMembersPageContent() {
                 <div className="amp-training-week-panel">
                   {trainingWeekLoading ? (
                     <p className="amp-empty amp-empty--modal">Зареждане...</p>
-                  ) : trainingWeekSessions.length === 0 ? (
-                    <p className="amp-empty amp-empty--modal">Няма насрочени събития за следващите 7 дни.</p>
                   ) : (
                     <>
                       {weekSessionColorOptions.length > 0 && (
@@ -7191,6 +7198,9 @@ function AdminMembersPageContent() {
                           ))}
                         </div>
                       )}
+                      {trainingWeekSessions.length === 0 && (
+                        <p className="amp-empty amp-empty--modal">Няма насрочени събития за следващите 7 дни.</p>
+                      )}
                       <WeeklyGrid
                         dates={trainingWeekDates}
                         sessions={(() => {
@@ -7199,7 +7209,7 @@ function AdminMembersPageContent() {
                             ? (weekColorFilter ?? selectedCustomGroup?.color ?? singleGroupColor ?? null)
                             : null;
                           const base = weekColorFilter
-                            ? trainingWeekSessions.filter((s) => s.color === weekColorFilter || s.eventType === "match")
+                            ? trainingWeekSessions.filter((s) => s.color === weekColorFilter)
                             : trainingWeekSessions;
                           return matchColor
                             ? base.map((s) => s.eventType === "match" && !s.color ? { ...s, color: matchColor } : s)
@@ -7412,7 +7422,7 @@ function AdminMembersPageContent() {
                       {false && trainingDaysEditorOpen && (
                         <div className="amp-training-days-editor">
                           <div className="amp-training-days-editor-header">
-                            <span className="amp-lbl">Избери тренировъчни дни (следващи 30 дни)</span>
+                            <span className="amp-lbl">Избери тренировъчни дни (следващи 3 месеца)</span>
                             <span className="amp-lbl">Избрани: {schedulerForm.trainingDates.length}</span>
                           </div>
                           <div className="amp-training-calendar">
@@ -8575,7 +8585,7 @@ function AdminMembersPageContent() {
                           ? "Задай тренировъчни дни за сборен отбор"
                           : trainingDaysEditorMode === "coachGroup"
                             ? "Тренировъчен график"
-                            : "Избери тренировъчни дни (следващи 30 дни)"}
+                            : "Избери тренировъчни дни (следващи 3 месеца)"}
                     </span>
                     {trainingDaysEditorMode !== "createGroup" && trainingDaysSingleEditDate === null && (
                       <span className="amp-lbl" style={{ textAlign: "center" }}>Избрани: {schedulerForm.trainingDates.length}</span>
