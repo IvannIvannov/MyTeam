@@ -110,7 +110,11 @@ export async function verifyAndApplyIrisPayment(input: {
     };
   }
 
-  const statusPayload = await getIrisPaymentStatus(pendingPayment.paymentHash);
+  // Use the options saved at creation, even if the current environment setting changes.
+  const statusPayload = await getIrisPaymentStatus(
+    pendingPayment.paymentHash,
+    isReusableIrisCreatePayload(pendingPayment.rawCreatePayload),
+  );
   const verifiedStatus = normalizeIrisStatus(statusPayload.status);
   if (!verifiedStatus) {
     throw new Error("IRISPay returned an unknown payment status");
