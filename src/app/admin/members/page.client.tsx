@@ -5535,7 +5535,7 @@ function AdminMembersPageContent() {
 
       <div className="amp-inner">
         <div style={{ display: "flex", alignItems: "center", marginBottom: "10px" }}>
-          {(isAdmin || (isCoach && searchParams.has("coachGroupId"))) && (
+          {isAdmin && (
             <button
               className="amp-back-btn amp-btn--compact"
               onClick={() => {

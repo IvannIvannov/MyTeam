@@ -26,14 +26,17 @@ export default function MonthlyFeeModal({ clubId, assignments, deleteGroupId, on
   const dialog = useRef<HTMLDivElement>(null);
   const url = `/api/admin/clubs/${encodeURIComponent(clubId)}/payment-amount`;
   useEffect(() => {
-    const controller = new AbortController();
-    fetch(url, { signal: controller.signal, cache: "no-store" }).then(async (response) => {
+    let active = true;
+    fetch(url, { cache: "no-store" }).then(async (response) => {
       const data = await response.json();
+      if (!active) return;
       if (!response.ok) throw new Error(data.error ?? "Грешка при зареждане.");
       setSettings(data);
       setClubAmount(data.paymentAmount);
-    }).catch((err) => { if (!controller.signal.aborted) setError(String(err.message)); });
-    return () => controller.abort();
+    }).catch((err) => { if (active) setError(err instanceof Error ? err.message : "Грешка при зареждане."); });
+    // Ignore late responses on close, club changes, and Strict Mode cleanup.
+    // Aborting fetch here can surface a spurious AbortError in the dev overlay.
+    return () => { active = false; };
   }, [url]);
   useEffect(() => {
     const previous = document.activeElement as HTMLElement | null;
