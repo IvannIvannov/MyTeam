@@ -1,64 +1,23 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/db";
 import { verifyAdminToken } from "@/lib/adminAuth";
-import { parsePaymentAmount } from "@/lib/paymentAmount";
-
+import { FeeSettingsError, updateClubFees } from "@/lib/clubFees";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-
-export async function PATCH(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> },
-) {
+async function handle(request: NextRequest, params: Promise<{ id: string }>, preview: boolean) {
   const token = request.cookies.get("admin_session")?.value;
-  const payload = token ? await verifyAdminToken(token) : null;
-
-  if (!payload) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
-  if (!payload.roles.includes("admin") && !payload.roles.includes("coach")) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
-
+  const session = token ? await verifyAdminToken(token) : null;
+  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (!session.roles.some((role) => role === "admin" || role === "coach")) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   try {
-    const { id: clubId } = await params;
-    const body = await request.json().catch(() => ({}));
-    const paymentAmount = parsePaymentAmount((body as { paymentAmount?: unknown }).paymentAmount);
-
-    if (paymentAmount === null) {
-      return NextResponse.json(
-        { error: "Невалидна сума. Въведете положително число с до 2 знака след десетичната запетая." },
-        { status: 400 },
-      );
-    }
-
-    const club = await prisma.club.findUnique({
-      where: { id: clubId },
-      select: { id: true },
-    });
-
-    if (!club) {
-      return NextResponse.json({ error: "Club not found" }, { status: 404 });
-    }
-
-    const [updatedClub, playersResult] = await prisma.$transaction([
-      prisma.club.update({
-        where: { id: clubId },
-        data: { defaultPaymentAmount: paymentAmount },
-      }),
-      prisma.player.updateMany({
-        where: { clubId },
-        data: { paymentAmount },
-      }),
-    ]);
-
-    return NextResponse.json({
-      club: updatedClub,
-      affectedPlayers: playersResult.count,
-    });
+    const { id } = await params;
+    const body = preview ? { preview: true } : await request.json();
+    return NextResponse.json(await updateClubFees(id, body));
   } catch (error) {
-    console.error("Payment amount update error:", error);
-    return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });
+    if (error instanceof FeeSettingsError) return NextResponse.json({ error: error.message, conflicts: error.conflicts }, { status: error.status });
+    if (error instanceof SyntaxError) return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
+    console.error("Fee settings error", error);
+    return NextResponse.json({ error: "Неуспешно запазване. Обновете данните и опитайте отново." }, { status: 500 });
   }
 }
+export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) { return handle(request, params, true); }
+export async function PATCH(request: NextRequest, { params }: { params: Promise<{ id: string }> }) { return handle(request, params, false); }

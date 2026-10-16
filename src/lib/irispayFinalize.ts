@@ -23,7 +23,16 @@ type IrisPaymentForDeactivation = Pick<
   "id" | "paymentHash" | "rawCreatePayload" | "linkDeactivatedAt"
 >;
 
-function buildPaidDates(payment: IrisPayment): Date[] {
+export function buildPaidDates(payment: IrisPayment): Date[] {
+  if (payment.quotedPaidDates !== null && payment.quotedPaidDates !== undefined) {
+    const raw = payment.quotedPaidDates;
+    if (!Array.isArray(raw) || raw.length === 0 || raw.some((value) => typeof value !== "string" || Number.isNaN(new Date(value).getTime()))) {
+      throw new Error("Invalid quoted payment periods");
+    }
+    const dates = (raw as string[]).map((value) => new Date(value));
+    if (new Set(dates.map((date) => date.toISOString())).size !== dates.length) throw new Error("Duplicate quoted payment periods");
+    return dates;
+  }
   if (payment.paidThrough && payment.paidThrough.getTime() !== payment.paidFor.getTime()) {
     const dates: Date[] = [];
     const cursor = new Date(payment.paidFor);

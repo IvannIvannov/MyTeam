@@ -19,7 +19,7 @@ import {
   type YearMonth,
 } from "@/lib/paymentStatus";
 import { updatePlayerStatusAfterPayment } from "@/lib/memberPayment";
-import { resolveManualPaymentAmount } from "@/lib/manualPaymentAmounts";
+import { resolveMemberFee, feeConflictMessage } from "@/lib/memberFee";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -73,6 +73,8 @@ export async function POST(
           select: {
             firstBillingMonth: true,
             paymentAmount: true,
+            billingCoachGroupId: true,
+            coachGroups: { select: { id: true, name: true, paymentAmount: true } },
             remainingTrainingCredits: true,
             club: {
               select: { paymentWorkflow: true, defaultPaymentAmount: true },
@@ -196,7 +198,9 @@ export async function POST(
       return NextResponse.json({ error: "This period is already paid" }, { status: 400 });
     }
 
-    const amount = resolveManualPaymentAmount(card.player.paymentAmount, card.player.club.defaultPaymentAmount);
+    const fee = resolveMemberFee(card.player, card.player.club.defaultPaymentAmount);
+    if (fee.source === "conflict") return NextResponse.json({ error: feeConflictMessage }, { status: 409 });
+    const amount = fee.amount;
     if (amount === null) {
       return NextResponse.json({ error: "Няма конфигурирана сума за плащане." }, { status: 400 });
     }

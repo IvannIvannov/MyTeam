@@ -1645,6 +1645,7 @@ function MemberDetailModal({
   isDeletingPermanent = false,
   coachGroups,
   onCoachGroupAssigned,
+  onFeeConflict,
 }: {
   member: Member;
   onClose: () => void;
@@ -1659,6 +1660,7 @@ function MemberDetailModal({
   isDeletingPermanent?: boolean;
   coachGroups?: CoachGroup[];
   onCoachGroupAssigned?: (memberId: string, coachGroupIds: string[]) => void;
+  onFeeConflict?: (memberId: string, coachGroupIds: string[]) => void;
 }) {
   const s = getStatusMeta(member.status);
   const [historyOpen, setHistoryOpen] = useState(false);
@@ -2006,6 +2008,9 @@ function MemberDetailModal({
                               });
                               if (!response.ok) {
                                 const payload = await response.json().catch(() => ({}));
+                                if (response.status === 409 && payload.conflicts?.length && onFeeConflict) {
+                                  onFeeConflict(member.id, assignCoachGroupValue); return;
+                                }
                                 throw new Error(String((payload as { error?: unknown }).error ?? "Грешка"));
                               }
                               onCoachGroupAssigned?.(member.id, assignCoachGroupValue);
