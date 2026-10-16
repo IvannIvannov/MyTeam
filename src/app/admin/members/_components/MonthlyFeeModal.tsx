@@ -50,7 +50,8 @@ export default function MonthlyFeeModal({ clubId, assignments, deleteGroupId, on
     const memberships = groups.filter((g) => ids.includes(g.id));
     const selected = choices[p.id] ?? (ids.includes(p.billingCoachGroupId ?? "") ? p.billingCoachGroupId : null);
     const personal = personalFees[p.id] ?? p.paymentAmount;
-    return { ...p, personal, selected, memberships, fee: resolveMemberFee({ paymentAmount: personal, billingCoachGroupId: selected, coachGroups: memberships }, clubAmount) };
+    const hasDifferentGroupFees = resolveMemberFee({ paymentAmount: 0, coachGroups: memberships }, clubAmount).source === "conflict";
+    return { ...p, personal, selected, memberships, hasDifferentGroupFees, fee: resolveMemberFee({ paymentAmount: personal, billingCoachGroupId: selected, coachGroups: memberships }, clubAmount) };
   });
   const conflicts = rows.filter((p) => p.fee.source === "conflict");
   const visible = rows.filter((p) => p.fullName.toLocaleLowerCase("bg").includes(search.toLocaleLowerCase("bg")));
@@ -103,15 +104,15 @@ export default function MonthlyFeeModal({ clubId, assignments, deleteGroupId, on
           </div>}
           <h3>Лични такси ({rows.filter((p) => Number(p.personal) > 0).length}) и избор на група</h3>
           <label className="amp-edit-field"><span className="amp-lbl">Търсене на състезател</span><input className="amp-edit-input" value={search} onChange={(e) => setSearch(e.target.value)} /></label>
-          {visible.filter((p) => Number(p.personal) > 0 || editingPersonal[p.id] || p.memberships.length > 1).map((p) => <div key={p.id} style={{ paddingBlock: 10, borderBottom: "1px solid #ffffff20" }}>
+          {visible.filter((p) => Number(p.personal) > 0 || editingPersonal[p.id] || p.hasDifferentGroupFees).map((p) => <div key={p.id} style={{ paddingBlock: 10, borderBottom: "1px solid #ffffff20" }}>
             <strong>{p.fullName}{!p.isActive ? " (неактивен)" : ""}</strong>
             <p>{Number(p.personal) > 0 ? `Лична такса: ${p.personal} € — запазва се независимо от групите.` : `Такса: ${p.fee.amount ?? "изберете група"}${p.fee.amount ? " €" : ""}`}</p>
             <button className="amp-btn amp-btn--ghost" type="button" disabled={busy} onClick={() => setEditingPersonal((prev) => ({ ...prev, [p.id]: !prev[p.id] }))}>{editingPersonal[p.id] ? "Скрий редакцията" : "Редактирай лична такса"}</button>
             {editingPersonal[p.id] && <>{moneyInput("Лична такса (0 = без лична такса)", p.personal, (value) => setPersonalFees((prev) => ({ ...prev, [p.id]: value })))}<button className="amp-btn amp-btn--ghost" type="button" disabled={busy} onClick={() => setPersonalFees((prev) => ({ ...prev, [p.id]: "0" }))}>Използвай групова / клубна такса</button></>}
-            {p.memberships.length > 1 && p.fee.source !== "conflict" && <label className="amp-edit-field"><span className="amp-lbl">Група за таксата{Number(p.personal) > 0 ? " (при премахване на личната такса)" : ""}</span><select className="amp-edit-input" disabled={busy} value={p.selected ?? ""} onChange={(e) => setChoices((prev) => ({ ...prev, [p.id]: e.target.value }))}><option value="" disabled>Еднакви такси / без избрана група</option>{p.memberships.map((g) => <option key={g.id} value={g.id}>{g.name} — {g.paymentAmount ?? clubAmount} €</option>)}</select></label>}
+            {p.hasDifferentGroupFees && p.fee.source !== "conflict" && <label className="amp-edit-field"><span className="amp-lbl">Група за таксата{Number(p.personal) > 0 ? " (при премахване на личната такса)" : ""}</span><select className="amp-edit-input" disabled={busy} value={p.selected ?? ""} onChange={(e) => setChoices((prev) => ({ ...prev, [p.id]: e.target.value }))}><option value="" disabled>Еднакви такси / без избрана група</option>{p.memberships.map((g) => <option key={g.id} value={g.id}>{g.name} — {g.paymentAmount ?? clubAmount} €</option>)}</select></label>}
           </div>)}
           {!search.trim() && <p className="amp-confirm-text">Потърсете състезател, за да зададете нова лична такса.</p>}
-          {search.trim() && visible.filter((p) => Number(p.personal) === 0 && !editingPersonal[p.id] && p.memberships.length <= 1).map((p) => <div key={p.id} style={{ paddingBlock: 6 }}><span>{p.fullName} — {p.fee.amount} € </span><button type="button" className="amp-btn amp-btn--ghost" disabled={busy} onClick={() => setEditingPersonal((prev) => ({ ...prev, [p.id]: true }))}>Задай лична такса</button></div>)}
+          {search.trim() && visible.filter((p) => Number(p.personal) === 0 && !editingPersonal[p.id] && !p.hasDifferentGroupFees).map((p) => <div key={p.id} style={{ paddingBlock: 6 }}><span>{p.fullName} — {p.fee.amount} € </span><button type="button" className="amp-btn amp-btn--ghost" disabled={busy} onClick={() => setEditingPersonal((prev) => ({ ...prev, [p.id]: true }))}>Задай лична такса</button></div>)}
         </>}
         {error && <p className="amp-confirm-error" role="alert">{error}</p>}
         <div className="amp-modal-actions"><button type="button" className="amp-btn amp-btn--ghost" disabled={busy} onClick={onClose}>Отказ</button><button type="button" className="amp-btn amp-btn--primary" disabled={busy || !settings || conflicts.length > 0} onClick={() => void save()}>{busy ? "Запазване..." : "Запази"}</button></div>
