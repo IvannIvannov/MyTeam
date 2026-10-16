@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { resolveMemberFee } from "@/lib/memberFee";
+import { hasUnsavedFeeChanges } from "@/lib/feeDraft";
 
 type Group = { id: string; name: string; paymentAmount: string | null };
 type Player = { id: string; fullName: string; paymentAmount: string; billingCoachGroupId: string | null; coachGroupIds: string[]; isActive: boolean };
@@ -23,7 +24,11 @@ export default function MonthlyFeeModal({ clubId, assignments, deleteGroupId, on
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [search, setSearch] = useState("");
+  const [showClosePrompt, setShowClosePrompt] = useState(false);
   const dialog = useRef<HTMLDivElement>(null);
+  const keepEditingButton = useRef<HTMLButtonElement>(null);
+  const saved = useRef(false);
+  const isDirty = hasUnsavedFeeChanges(settings, { clubAmount, groupFees, personalFees, choices, assignments, deleteGroupId });
   const url = `/api/admin/clubs/${encodeURIComponent(clubId)}/payment-amount`;
   useEffect(() => {
     let active = true;
@@ -44,6 +49,21 @@ export default function MonthlyFeeModal({ clubId, assignments, deleteGroupId, on
     return () => previous?.focus();
   }, []);
 
+  useEffect(() => {
+    if (!isDirty) return;
+    const warnBeforeLeaving = (event: BeforeUnloadEvent) => {
+      if (saved.current) return;
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", warnBeforeLeaving);
+    return () => window.removeEventListener("beforeunload", warnBeforeLeaving);
+  }, [isDirty]);
+  useEffect(() => {
+    if (showClosePrompt) keepEditingButton.current?.focus();
+    else dialog.current?.focus();
+  }, [showClosePrompt]);
+
   const groups = (settings?.groups ?? []).filter((g) => g.id !== deleteGroupId).map((g) => ({ ...g, paymentAmount: Object.hasOwn(groupFees, g.id) ? groupFees[g.id] || null : g.paymentAmount }));
   const rows = (settings?.players ?? []).map((p) => {
     const ids = (assignments?.[p.id] ?? p.coachGroupIds).filter((id) => id !== deleteGroupId);
@@ -55,7 +75,14 @@ export default function MonthlyFeeModal({ clubId, assignments, deleteGroupId, on
   });
   const conflicts = rows.filter((p) => p.fee.source === "conflict");
   const visible = rows.filter((p) => p.fullName.toLocaleLowerCase("bg").includes(search.toLocaleLowerCase("bg")));
+  function requestClose() {
+    if (busy) return;
+    if (showClosePrompt) { setShowClosePrompt(false); return; }
+    if (isDirty && !saved.current) setShowClosePrompt(true);
+    else onClose();
+  }
   async function save() {
+    if (busy || !settings || conflicts.length > 0) return;
     setBusy(true); setError("");
     try {
       const response = await fetch(url, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({
@@ -65,6 +92,7 @@ export default function MonthlyFeeModal({ clubId, assignments, deleteGroupId, on
       }) });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error ?? "Грешка при запазване.");
+      saved.current = true;
       onSaved();
     } catch (err) { setError(err instanceof Error ? err.message : "Грешка при запазване."); }
     finally { setBusy(false); }
@@ -74,9 +102,9 @@ export default function MonthlyFeeModal({ clubId, assignments, deleteGroupId, on
       <div className="amp-money-input-wrap"><span className="amp-money-input-icon">€</span><input className="amp-edit-input amp-money-input" type="number" min="0" step="0.01" value={value} placeholder={placeholder} disabled={busy} onChange={(e) => change(e.target.value)} /></div>
     </label>
   );
-  return <div className="amp-overlay" style={{ zIndex: 150 }} onClick={() => { if (!busy) onClose(); }}>
+  return <div className="amp-overlay" style={{ zIndex: 150 }} onClick={requestClose}>
     <div ref={dialog} className="amp-modal amp-modal--confirm" role="dialog" aria-modal="true" aria-labelledby="monthly-fee-title" tabIndex={-1} style={{ maxWidth: 680 }} onClick={(e) => e.stopPropagation()} onKeyDown={(e) => {
-      if (e.key === "Escape" && !busy) onClose();
+      if (e.key === "Escape") { e.stopPropagation(); requestClose(); }
       if (e.key === "Tab") {
         const elements = dialog.current?.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled), select:not(:disabled), [tabindex="0"]');
         if (!elements?.length) return;
@@ -86,8 +114,18 @@ export default function MonthlyFeeModal({ clubId, assignments, deleteGroupId, on
       }
     }}>
       <div className="amp-modal-tint" aria-hidden="true" />
-      <h2 className="amp-modal-title" id="monthly-fee-title"><span className="amp-modal-title-gradient">Месечна такса</span><button type="button" className="amp-modal-close" aria-label="Затвори" disabled={busy} onClick={onClose}>×</button></h2>
+      <h2 className="amp-modal-title" id="monthly-fee-title"><span className="amp-modal-title-gradient">{showClosePrompt ? "Незапазени промени" : "Месечна такса"}</span><button type="button" className="amp-modal-close" aria-label="Затвори" disabled={busy} onClick={requestClose}>×</button></h2>
       <div className="amp-modal-body" style={{ maxHeight: "75vh", overflowY: "auto" }}>
+        {showClosePrompt ? <>
+          <p className="amp-confirm-text">Имате незапазени промени. Искате ли да ги запазите, преди да затворите?</p>
+          {conflicts.length > 0 && <p className="amp-confirm-error" role="alert">Преди запазване трябва да изберете такса за състезателите в групи с различни такси. Натиснете „Продължи редакцията“.</p>}
+          {error && <p className="amp-confirm-error" role="alert">{error}</p>}
+          <div className="amp-modal-actions" style={{ flexWrap: "wrap" }}>
+            <button ref={keepEditingButton} type="button" className="amp-btn amp-btn--ghost" disabled={busy} onClick={() => setShowClosePrompt(false)}>Продължи редакцията</button>
+            <button type="button" className="amp-btn amp-btn--ghost" disabled={busy} onClick={() => { saved.current = true; onClose(); }}>Затвори без запазване</button>
+            <button type="button" className="amp-btn amp-btn--primary" disabled={busy || !settings || conflicts.length > 0} onClick={() => void save()}>{busy ? "Запазване..." : "Запази и затвори"}</button>
+          </div>
+        </> : <>
         {!settings && !error && <p role="status">Зареждане...</p>}
         {settings && <>
           {assignments && <p className="amp-confirm-text">Промените в групите ще се запазят заедно с избраните такси.</p>}
@@ -115,7 +153,8 @@ export default function MonthlyFeeModal({ clubId, assignments, deleteGroupId, on
           {search.trim() && visible.filter((p) => Number(p.personal) === 0 && !editingPersonal[p.id] && !p.hasDifferentGroupFees).map((p) => <div key={p.id} style={{ paddingBlock: 6 }}><span>{p.fullName} — {p.fee.amount} € </span><button type="button" className="amp-btn amp-btn--ghost" disabled={busy} onClick={() => setEditingPersonal((prev) => ({ ...prev, [p.id]: true }))}>Задай лична такса</button></div>)}
         </>}
         {error && <p className="amp-confirm-error" role="alert">{error}</p>}
-        <div className="amp-modal-actions"><button type="button" className="amp-btn amp-btn--ghost" disabled={busy} onClick={onClose}>Отказ</button><button type="button" className="amp-btn amp-btn--primary" disabled={busy || !settings || conflicts.length > 0} onClick={() => void save()}>{busy ? "Запазване..." : "Запази"}</button></div>
+        <div className="amp-modal-actions"><button type="button" className="amp-btn amp-btn--ghost" disabled={busy} onClick={requestClose}>Отказ</button><button type="button" className="amp-btn amp-btn--primary" disabled={busy || !settings || conflicts.length > 0} onClick={() => void save()}>{busy ? "Запазване..." : "Запази"}</button></div>
+        </>}
       </div>
     </div>
   </div>;
