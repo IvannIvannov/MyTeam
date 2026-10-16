@@ -10,6 +10,7 @@ import {
   getIrisWebhookSecret,
   isIrisPayEnabledForClub,
 } from "@/lib/irispay";
+import { resolveMemberFee, feeConflictMessage } from "@/lib/memberFee";
 import { resolveMemberPaymentIntent } from "@/lib/memberPayment";
 
 export const runtime = "nodejs";
@@ -56,6 +57,8 @@ export async function POST(
             clubId: true,
             firstBillingMonth: true,
             paymentAmount: true,
+            billingCoachGroupId: true,
+            coachGroups: { select: { id: true, name: true, paymentAmount: true } },
             remainingTrainingCredits: true,
             club: {
               select: {
@@ -102,9 +105,9 @@ export async function POST(
       remainingTrainings: isTrainingCreditWorkflow ? onlineTrainingCredits : undefined,
     });
 
-    const playerAmount = toMoney(card.player.paymentAmount);
-    const clubAmount = toMoney(card.player.club.defaultPaymentAmount);
-    const unitAmount = playerAmount.greaterThan(0) ? playerAmount : clubAmount;
+    const fee = resolveMemberFee(card.player, card.player.club.defaultPaymentAmount);
+    if (fee.source === "conflict") return NextResponse.json({ error: feeConflictMessage }, { status: 409 });
+    const unitAmount = toMoney(fee.amount ?? "0");
     if (!unitAmount.greaterThan(0)) {
       return NextResponse.json(
         { error: "Online payment amount is not configured." },
@@ -121,6 +124,7 @@ export async function POST(
         paidFor: resolved.paidFor,
         paidThrough: resolved.paidThrough,
         amount: totalAmount,
+        quotedPaidDates: { equals: resolved.paidDates.map((date) => date.toISOString()) },
       },
       orderBy: { createdAt: "desc" },
     });
@@ -161,6 +165,7 @@ export async function POST(
         currency: "EUR",
         paidFor: resolved.paidFor,
         paidThrough: resolved.paidThrough,
+        quotedPaidDates: resolved.paidDates.map((date) => date.toISOString()),
         trainingCredits: resolved.trainingCredits,
         status: "WAITING",
       },

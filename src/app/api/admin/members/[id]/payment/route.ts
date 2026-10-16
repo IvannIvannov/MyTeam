@@ -13,7 +13,7 @@ import {
   compareYearMonth,
 } from "@/lib/paymentStatus";
 import { updatePlayerStatusAfterPayment } from "@/lib/memberPayment";
-import { resolveManualPaymentAmount } from "@/lib/manualPaymentAmounts";
+import { resolveMemberFee, feeConflictMessage } from "@/lib/memberFee";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -53,6 +53,7 @@ export async function POST(
     const player = await prisma.player.findUnique({
       where: { id },
       include: {
+        coachGroups: { select: { id: true, name: true, paymentAmount: true } },
         paymentLogs: {
           orderBy: { paidFor: "desc" },
           take: 1,
@@ -71,7 +72,9 @@ export async function POST(
     if (!player) {
       return NextResponse.json({ error: "Player not found" }, { status: 404 });
     }
-    const amount = resolveManualPaymentAmount(player.paymentAmount, player.club.defaultPaymentAmount);
+    const fee = resolveMemberFee(player, player.club.defaultPaymentAmount);
+    if (fee.source === "conflict") return NextResponse.json({ error: feeConflictMessage }, { status: 409 });
+    const amount = fee.amount;
     if (amount === null) {
       return NextResponse.json({ error: "Payment amount is not configured." }, { status: 400 });
     }

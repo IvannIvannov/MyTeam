@@ -134,6 +134,16 @@ describe("verifyAndApplyIrisPayment link deactivation", () => {
       amountPerPeriod: "25.50", currency: "EUR",
     }));
   });
+  it("uses exact quoted months across a waived gap and the stored checkout amount", async () => {
+    const dates = ["2026-01-01T00:00:00.000Z", "2026-03-01T00:00:00.000Z"];
+    mocks.prisma.irisPayment.findUnique
+      .mockResolvedValueOnce(makePayment({ amount: { toString: () => "170.00" }, paidFor: new Date(dates[0]), paidThrough: new Date(dates[1]), quotedPaidDates: dates }))
+      .mockResolvedValueOnce(makePayment({ status: "CONFIRMED", paymentLogId: "log-1" }));
+    await verifyAndApplyIrisPayment({ orderId: "order-1" });
+    expect(finalizeResolvedMemberPayment).toHaveBeenCalledWith(expect.objectContaining({
+      paidDates: dates.map((date) => new Date(date)), amountPerPeriod: "85.00",
+    }));
+  });
   it("deactivates a verified CONFIRMED reusable payment before finalization completes", async () => {
     mocks.prisma.irisPayment.findUnique
       .mockResolvedValueOnce(makePayment())

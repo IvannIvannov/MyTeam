@@ -1,4 +1,7 @@
 "use client";
+import GroupAssignmentFeeNotice from "@/app/admin/members/_components/GroupAssignmentFeeNotice";
+import { previewGroupAssignmentFees, rebaseGroupAssignmentSelection, type GroupFeeSettings } from "@/lib/groupAssignmentFees";
+import MonthlyFeeModal from "@/app/admin/members/_components/MonthlyFeeModal";
 import { mergeTrainingCalendarDates } from "@/lib/trainingCalendarDates";
 import { applyTrainingFieldToDates, toggleTrainingFieldPiece } from "@/lib/trainingFieldPicker";
 
@@ -706,12 +709,9 @@ function AdminMembersPageContent() {
   const [paymentWorkflowSaving, setPaymentWorkflowSaving] = useState(false);
   const [paymentWorkflowError, setPaymentWorkflowError] = useState("");
   const [paymentWorkflowSuccess, setPaymentWorkflowSuccess] = useState("");
-  const [clubDefaultPaymentAmount, setClubDefaultPaymentAmount] = useState("");
   const [paymentAmountModalOpen, setPaymentAmountModalOpen] = useState(false);
-  const [paymentAmountForm, setPaymentAmountForm] = useState("");
-  const [paymentAmountSaving, setPaymentAmountSaving] = useState(false);
-  const [paymentAmountError, setPaymentAmountError] = useState("");
-  const [paymentAmountSuccess, setPaymentAmountSuccess] = useState("");
+  const [feeAssignments, setFeeAssignments] = useState<Record<string, string[]> | undefined>();
+  const [feeDeleteGroupId, setFeeDeleteGroupId] = useState<string | undefined>();
   const [clubLogoUrl, setClubLogoUrl] = useState<string | null>(null);
   const [reportsOpen, setReportsOpen] = useState(false);
   const [attendanceDashboardOpen, setAttendanceDashboardOpen] = useState(false);
@@ -919,10 +919,11 @@ function AdminMembersPageContent() {
   const [notifyError, setNotifyError] = useState("");
   const [notifySuccess, setNotifySuccess] = useState("");
   const [bulkCoachGroupTargetId, setBulkCoachGroupTargetId] = useState<string | null>(null);
-  const [bulkCoachGroupAllMembers, setBulkCoachGroupAllMembers] = useState<Member[]>([]);
+  const [bulkCoachGroupAllMembers, setBulkCoachGroupAllMembers] = useState<GroupFeeSettings["players"]>([]);
+  const [bulkCoachGroupFeeSettings, setBulkCoachGroupFeeSettings] = useState<GroupFeeSettings | null>(null);
+  const [bulkCoachGroupBillingChoices, setBulkCoachGroupBillingChoices] = useState<Record<string, string>>({});
   const [bulkCoachGroupLoadingMembers, setBulkCoachGroupLoadingMembers] = useState(false);
   const [bulkCoachGroupSelectedIds, setBulkCoachGroupSelectedIds] = useState<Set<string>>(new Set());
-  const [bulkCoachGroupInitialIds, setBulkCoachGroupInitialIds] = useState<Set<string>>(new Set());
   const [bulkCoachGroupSearchTerm, setBulkCoachGroupSearchTerm] = useState("");
   const [bulkCoachGroupBusy, setBulkCoachGroupBusy] = useState(false);
   const [bulkCoachGroupError, setBulkCoachGroupError] = useState("");
@@ -1148,9 +1149,8 @@ function AdminMembersPageContent() {
   };
 
   const openPaymentAmountModal = () => {
-    setPaymentAmountForm(clubDefaultPaymentAmount || "");
-    setPaymentAmountError("");
-    setPaymentAmountSuccess("");
+    setFeeAssignments(undefined);
+    setFeeDeleteGroupId(undefined);
     setPaymentAmountModalOpen(true);
   };
 
@@ -1210,12 +1210,7 @@ function AdminMembersPageContent() {
     }
   };
 
-  const closePaymentAmountModal = () => {
-    if (paymentAmountSaving) return;
-    setPaymentAmountModalOpen(false);
-    setPaymentAmountError("");
-    setPaymentAmountSuccess("");
-  };
+
 
   const openPaymentWorkflowModal = () => {
     setPaymentWorkflowDraft(clubPaymentWorkflow);
@@ -1268,47 +1263,6 @@ function AdminMembersPageContent() {
       setPaymentWorkflowError("Възникна грешка при запазване на метода за плащане.");
     } finally {
       setPaymentWorkflowSaving(false);
-    }
-  };
-
-  const handleSavePaymentAmount = async () => {
-    if (!clubId || paymentAmountSaving) return;
-
-    const normalizedPaymentAmount = paymentAmountForm.trim().replace(",", ".");
-    if (!normalizedPaymentAmount || !/^\d+(\.\d{1,2})?$/.test(normalizedPaymentAmount)) {
-      setPaymentAmountError("Въведете валидна сума с до 2 знака след десетичната запетая.");
-      return;
-    }
-
-    setPaymentAmountSaving(true);
-    setPaymentAmountError("");
-    setPaymentAmountSuccess("");
-
-    try {
-      const response = await fetch(`/api/admin/clubs/${encodeURIComponent(clubId)}/payment-amount`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ paymentAmount: normalizedPaymentAmount }),
-      });
-
-      const payload = await response.json().catch(() => ({}));
-      if (!response.ok) {
-        setPaymentAmountError(
-          typeof payload?.error === "string" && payload.error.trim()
-            ? payload.error.trim()
-            : "Неуспешно запазване на месечната такса.",
-        );
-        return;
-      }
-
-      setClubDefaultPaymentAmount(normalizedPaymentAmount);
-      setPaymentAmountSuccess("Месечната такса е обновена за клуба и всички състезатели.");
-      setMembers((prev) => prev.map((member) => ({ ...member, paymentAmount: normalizedPaymentAmount })));
-    } catch (error) {
-      console.error("Payment amount save error:", error);
-      setPaymentAmountError("Възникна грешка при запазване на месечната такса.");
-    } finally {
-      setPaymentAmountSaving(false);
     }
   };
 
@@ -2058,10 +2012,7 @@ function AdminMembersPageContent() {
                   ? "training_credits_30_days"
                 : "calendar_month",
           );
-          const defaultPaymentAmount = (selectedClub as Record<string, unknown>).defaultPaymentAmount;
-          setClubDefaultPaymentAmount(
-            defaultPaymentAmount === null || defaultPaymentAmount === undefined ? "" : String(defaultPaymentAmount),
-          );
+
 
           const logo = (selectedClub as Record<string, unknown>).imageUrl;
           if (typeof logo === "string" && logo) {
@@ -2072,7 +2023,6 @@ function AdminMembersPageContent() {
         } else {
           setClubName("Всички отбори");
           setClubBillingStatus("");
-          setClubDefaultPaymentAmount("");
           setClubLogoUrl(null);
         }
 
@@ -2143,10 +2093,7 @@ function AdminMembersPageContent() {
                 ? "training_credits_30_days"
               : "calendar_month",
         );
-        const defaultPaymentAmount = (selectedClub as Record<string, unknown> | null)?.defaultPaymentAmount;
-        setClubDefaultPaymentAmount(
-          defaultPaymentAmount === null || defaultPaymentAmount === undefined ? "" : String(defaultPaymentAmount),
-        );
+
         const logo = (selectedClub as Record<string, unknown> | null)?.imageUrl;
         if (typeof logo === "string" && logo) {
           setClubLogoUrl(logo);
@@ -2733,6 +2680,11 @@ function AdminMembersPageContent() {
     return list;
   }, [members, notifyGroupFilter, notifySearchTerm, notifyCoachGroupFilter, coachGroupId, isCustomTrainingGroupMode, customTrainingGroups, trainingScheduleGroups]);
 
+  const bulkCoachGroupFeePreview = useMemo(() => bulkCoachGroupFeeSettings && bulkCoachGroupTargetId
+    ? previewGroupAssignmentFees(bulkCoachGroupFeeSettings, bulkCoachGroupTargetId, bulkCoachGroupSelectedIds, bulkCoachGroupBillingChoices)
+    : [], [bulkCoachGroupFeeSettings, bulkCoachGroupTargetId, bulkCoachGroupSelectedIds, bulkCoachGroupBillingChoices]);
+  const bulkCoachGroupHasFeeConflicts = bulkCoachGroupFeePreview.some((row) => row.fee.source === "conflict");
+
   const bulkCoachGroupVisibleMembers = useMemo(() => {
     let list = bulkCoachGroupAllMembers.filter((m) => m.isActive);
     if (bulkCoachGroupSearchTerm.trim()) {
@@ -2805,62 +2757,72 @@ function AdminMembersPageContent() {
   const openBulkCoachGroupModal = async (groupId: string) => {
     setBulkCoachGroupTargetId(groupId);
     setBulkCoachGroupAllMembers([]);
+    setBulkCoachGroupFeeSettings(null);
+    setBulkCoachGroupBillingChoices({});
+    setFeeAssignments(undefined);
     setBulkCoachGroupSelectedIds(new Set());
-    setBulkCoachGroupInitialIds(new Set());
     setBulkCoachGroupSearchTerm("");
     setBulkCoachGroupError("");
     setBulkCoachGroupSaved(false);
     setBulkCoachGroupBusy(false);
     setBulkCoachGroupLoadingMembers(true);
     try {
-      const res = await fetch(`/api/admin/members?clubId=${encodeURIComponent(clubId)}`);
-      const data = (await res.json().catch(() => [])) as Member[];
-      const allActive = Array.isArray(data) ? data.filter((m) => m.isActive) : [];
+      const res = await fetch(`/api/admin/clubs/${encodeURIComponent(clubId)}/payment-amount`, { cache: "no-store" });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Грешка при зареждане на таксите.");
+      const settings = data as GroupFeeSettings;
+      const allActive = settings.players.filter((m) => m.isActive);
       const alreadyIn = new Set(allActive.filter((m) => m.coachGroupIds.includes(groupId)).map((m) => m.id));
+      setBulkCoachGroupFeeSettings(settings);
       setBulkCoachGroupAllMembers(allActive);
       setBulkCoachGroupSelectedIds(new Set(alreadyIn));
-      setBulkCoachGroupInitialIds(new Set(alreadyIn));
-    } catch {
-      setBulkCoachGroupError("Грешка при зареждане на състезателите.");
+    } catch (err) {
+      setBulkCoachGroupError(err instanceof Error ? err.message : "Грешка при зареждане на състезателите.");
     } finally {
       setBulkCoachGroupLoadingMembers(false);
     }
   };
 
   const handleBulkCoachGroupSave = async () => {
-    if (!bulkCoachGroupTargetId) return;
+    if (!bulkCoachGroupTargetId || !bulkCoachGroupFeeSettings || bulkCoachGroupHasFeeConflicts) return;
     setBulkCoachGroupBusy(true);
     setBulkCoachGroupError("");
     try {
-      const toAdd = bulkCoachGroupAllMembers.filter(
-        (m) => m.isActive && bulkCoachGroupSelectedIds.has(m.id) && !bulkCoachGroupInitialIds.has(m.id)
-      );
-      const toRemove = bulkCoachGroupAllMembers.filter(
-        (m) => m.isActive && !bulkCoachGroupSelectedIds.has(m.id) && bulkCoachGroupInitialIds.has(m.id)
-      );
-      const allChanged = [...toAdd, ...toRemove];
-      if (allChanged.length === 0) {
+      if (!bulkCoachGroupFeePreview.length) {
         setBulkCoachGroupSaved(true);
         setTimeout(() => setBulkCoachGroupSaved(false), 2000);
         return;
       }
-      for (const member of allChanged) {
-        const isAdding = bulkCoachGroupSelectedIds.has(member.id);
-        const newGroupIds = isAdding
-          ? [...new Set([...(member.coachGroupIds ?? []), bulkCoachGroupTargetId])]
-          : (member.coachGroupIds ?? []).filter((id) => id !== bulkCoachGroupTargetId);
-        const res = await fetch(`/api/admin/members/${encodeURIComponent(member.id)}/coach-group`, {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ coachGroupIds: newGroupIds }),
-        });
-        if (!res.ok) {
-          const data = (await res.json().catch(() => ({}))) as { error?: string };
-          throw new Error(data.error ?? "Грешка при запазване");
+      const assignments = Object.fromEntries(bulkCoachGroupFeePreview.map((p) => [p.id, p.coachGroupIds]));
+      const billingChoices = Object.fromEntries(bulkCoachGroupFeePreview
+        .filter((p) => p.billingCoachGroupId && Object.hasOwn(bulkCoachGroupBillingChoices, p.id))
+        .map((p) => [p.id, p.billingCoachGroupId]));
+      const res = await fetch(`/api/admin/clubs/${encodeURIComponent(clubId)}/payment-amount`, {
+        method: "PATCH", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ assignments, billingChoices, expectedRevision: bulkCoachGroupFeeSettings.revision }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        if (res.status === 409) {
+          setFeeAssignments(assignments);
+          const fresh = await fetch(`/api/admin/clubs/${encodeURIComponent(clubId)}/payment-amount`, { cache: "no-store" });
+          if (fresh.ok) {
+            const settings = await fresh.json() as GroupFeeSettings;
+            setBulkCoachGroupFeeSettings(settings);
+            setBulkCoachGroupAllMembers(settings.players.filter((m) => m.isActive));
+            const selected = rebaseGroupAssignmentSelection(settings, bulkCoachGroupTargetId, assignments);
+            setBulkCoachGroupSelectedIds(selected);
+            setFeeAssignments(Object.fromEntries(previewGroupAssignmentFees(settings, bulkCoachGroupTargetId, selected, bulkCoachGroupBillingChoices).map((p) => [p.id, p.coachGroupIds])));
+            throw new Error("Нищо не е запазено. Таксите или групите са променени междувременно. Данните са обновени — прегледайте сумите и изберете група за таксата, ако е необходимо, след което натиснете „Запази“ отново. За други състезатели използвайте „Преглед на месечните такси“.");
+          }
         }
+        throw new Error(data.error ?? "Грешка при запазване");
       }
+      setBulkCoachGroupFeeSettings(data as GroupFeeSettings);
+      setBulkCoachGroupAllMembers((data as GroupFeeSettings).players.filter((m) => m.isActive));
+      setBulkCoachGroupBillingChoices({});
+      setFeeAssignments(undefined);
       setBulkCoachGroupSaved(true);
-      setBulkCoachGroupInitialIds(new Set(bulkCoachGroupSelectedIds));
       void refreshMembersList();
       setTimeout(() => setBulkCoachGroupSaved(false), 2000);
     } catch (err) {
@@ -6230,6 +6192,7 @@ function AdminMembersPageContent() {
           isReactivating={reactivatingMemberId === selectedMember.id}
           isDeletingPermanent={deletingPermanentMemberId === selectedMember.id}
           coachGroups={(isAdmin || isCoach) && coachGroups.length > 0 ? coachGroups : undefined}
+          onFeeConflict={(memberId, ids) => { setFeeAssignments({ [memberId]: ids }); setPaymentAmountModalOpen(true); }}
           onCoachGroupAssigned={(memberId, newCoachGroupIds) => {
             setMembers((prev) => prev.map((m) => m.id === memberId ? { ...m, coachGroupIds: newCoachGroupIds } : m));
             setSelectedMember((prev) => prev?.id === memberId ? { ...prev, coachGroupIds: newCoachGroupIds } : prev);
@@ -6332,7 +6295,7 @@ function AdminMembersPageContent() {
                 </label>
                 {!coachGroupId && (
                   <label className="amp-edit-field">
-                    <span className="amp-lbl">Месечна такса</span>
+                    <span className="amp-lbl">Лична такса (0 = групова / клубна)</span>
                     <input
                       className="amp-edit-input"
                       type="number"
@@ -6559,69 +6522,9 @@ function AdminMembersPageContent() {
         </div>
       )}
       {paymentAmountModalOpen && (isAdmin || isCoach) && clubId && (
-        <div className="amp-overlay" onClick={closePaymentAmountModal}>
-          <div className="amp-modal amp-modal--confirm" onClick={(e) => e.stopPropagation()}>
-            <div className="amp-modal-tint" aria-hidden="true" />
-            <h2 className="amp-modal-title">
-              <span className="amp-modal-title-gradient">Месечна такса</span>
-              <button
-                className="amp-modal-close"
-                onClick={closePaymentAmountModal}
-                aria-label="Затвори"
-                disabled={paymentAmountSaving}
-              >
-                <XIcon />
-              </button>
-            </h2>
-
-            <div className="amp-modal-body">
-              <label className="amp-edit-field amp-edit-field--full">
-                <span className="amp-lbl">Сума за клуба</span>
-                <div className="amp-money-input-wrap">
-                  <span className="amp-money-input-icon">€</span>
-                  <input
-                    className="amp-edit-input amp-money-input"
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    value={paymentAmountForm}
-                    onChange={(e) => {
-                      setPaymentAmountForm(e.target.value);
-                      setPaymentAmountError("");
-                      setPaymentAmountSuccess("");
-                    }}
-                    disabled={paymentAmountSaving}
-                  />
-                </div>
-              </label>
-              <p className="amp-confirm-text">
-                Тази сума ще бъде зададена като стандартна за клуба и ще се приложи за всички състезатели.
-              </p>
-
-              {paymentAmountError && <p className="amp-confirm-error">{paymentAmountError}</p>}
-              {paymentAmountSuccess && <p className="amp-confirm-success">{paymentAmountSuccess}</p>}
-
-              <div className="amp-modal-actions">
-                <button
-                  className="amp-btn amp-btn--ghost"
-                  type="button"
-                  onClick={closePaymentAmountModal}
-                  disabled={paymentAmountSaving}
-                >
-                  Отказ
-                </button>
-                <button
-                  className="amp-btn amp-btn--primary"
-                  type="button"
-                  onClick={handleSavePaymentAmount}
-                  disabled={paymentAmountSaving}
-                >
-                  {paymentAmountSaving ? "Запазване..." : "Запази"}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
+        <MonthlyFeeModal clubId={clubId} assignments={feeAssignments} deleteGroupId={feeDeleteGroupId}
+          onClose={() => { setPaymentAmountModalOpen(false); setFeeAssignments(undefined); setFeeDeleteGroupId(undefined); }}
+          onSaved={() => { window.location.reload(); }} />
       )}
       {rulesModalOpen && (isAdmin || isCoach) && clubId && (
         <div className="amp-overlay" onClick={() => { if (!rulesUploading && !rulesDeletingId) setRulesModalOpen(false); }}>
@@ -6943,12 +6846,20 @@ function AdminMembersPageContent() {
                                   setCoachGroupDeleteSaving(true);
                                   try {
                                     const response = await fetch(`/api/admin/clubs/${encodeURIComponent(clubId)}/coach-groups/${encodeURIComponent(group.id)}`, { method: "DELETE" });
-                                    if (!response.ok) throw new Error("Грешка при изтриване");
+                                    if (!response.ok) {
+                                      const data = await response.json().catch(() => ({}));
+                                      if (response.status === 409 && data.conflicts?.length) {
+                                        setFeeAssignments(undefined);
+                                        setFeeDeleteGroupId(group.id);
+                                        setPaymentAmountModalOpen(true);
+                                      }
+                                      throw new Error(data.error ?? "Грешка при изтриване");
+                                    }
                                     setCoachGroupDeleteId(null);
                                     void loadCoachGroups();
                                     void refreshMembersList();
-                                  } catch {
-                                    // ignore
+                                  } catch (err) {
+                                    setCoachGroupCreateError(err instanceof Error ? err.message : "Грешка при изтриване");
                                   } finally {
                                     setCoachGroupDeleteSaving(false);
                                   }
@@ -10765,6 +10676,11 @@ function AdminMembersPageContent() {
                   Изчисти
                 </button>
               </div>
+              <GroupAssignmentFeeNotice rows={bulkCoachGroupFeePreview} clubAmount={bulkCoachGroupFeeSettings?.paymentAmount ?? ""}
+                busy={bulkCoachGroupBusy} onChoice={(playerId, groupId) => {
+                  setBulkCoachGroupBillingChoices((prev) => ({ ...prev, [playerId]: groupId }));
+                  setBulkCoachGroupError("");
+                }} />
               <div className="amp-notify-player-list">
                 {bulkCoachGroupLoadingMembers ? (
                   <p style={{ padding: "12px", fontSize: "13px", color: "rgba(255,255,255,0.4)", textAlign: "center" }}>
@@ -10805,7 +10721,11 @@ function AdminMembersPageContent() {
                 )}
               </div>
               {bulkCoachGroupError && (
-                <p className="amp-confirm-error" style={{ marginTop: "8px" }}>{bulkCoachGroupError}</p>
+                <div role="alert"><p className="amp-confirm-error" style={{ marginTop: "8px" }}>{bulkCoachGroupError}</p>
+                  {feeAssignments && <button type="button" className="amp-btn amp-btn--ghost" onClick={() => {
+                    setFeeDeleteGroupId(undefined); setPaymentAmountModalOpen(true);
+                  }}>Преглед на месечните такси и избор на група</button>}
+                </div>
               )}
               <div className="amp-modal-actions" style={{ marginTop: "16px" }}>
                 <button
@@ -10819,7 +10739,7 @@ function AdminMembersPageContent() {
                 <button
                   type="button"
                   className={`amp-btn amp-btn--primary${bulkCoachGroupSaved ? " amp-btn--saved" : ""}`}
-                  disabled={bulkCoachGroupBusy || bulkCoachGroupSaved}
+                  disabled={bulkCoachGroupBusy || bulkCoachGroupSaved || bulkCoachGroupLoadingMembers || !bulkCoachGroupFeeSettings || bulkCoachGroupHasFeeConflicts}
                   onClick={() => void handleBulkCoachGroupSave()}
                 >
                   {bulkCoachGroupBusy ? "Запазване..." : bulkCoachGroupSaved ? "✓ Записано" : `Запази (${bulkCoachGroupSelectedIds.size})`}
