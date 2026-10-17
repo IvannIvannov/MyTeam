@@ -12,6 +12,7 @@ import { isValidPhone } from "@/lib/phone";
 import { getCompatiblePushSubscription } from "@/lib/push/browser";
 import AdminLogoutButton from "@/components/admin/AdminLogoutButton";
 import CoachMessageModal from "@/components/admin/CoachMessageModal";
+import ActiveDevicesModal from "@/app/admin/members/_components/ActiveDevicesModal";
 import { buildCoachWizardSchedule, type CoachWizardSelection } from "@/lib/coachTrainingWizard";
 import type { CoachTraining, CoachTrainingRecurrence } from "@/lib/coachTrainingSchedule";
 import type { CoachTrainingLimit } from "@/lib/coachTrainingLimits";
@@ -903,6 +904,7 @@ function AdminMembersPageContent() {
   const [rulesDeletingId, setRulesDeletingId] = useState<string | null>(null);
   const [rulesError, setRulesError] = useState("");
   const [guideOpen, setGuideOpen] = useState(false);
+  const [activeDevicesOpen, setActiveDevicesOpen] = useState(false);
   const [guideStep, setGuideStep] = useState(0);
   const [guideImgExpanded, setGuideImgExpanded] = useState(false);
   const [guideImgScale, setGuideImgScale] = useState(1);
@@ -5866,6 +5868,11 @@ function AdminMembersPageContent() {
             >
               <BellIcon />
               <span>Съобщение</span>
+            </button>
+          )}
+          {(isAdmin || isCoach) && clubId && (
+            <button className="amp-download-links-btn amp-scheduler-settings-btn amp-btn--compact" type="button" onClick={() => setActiveDevicesOpen(true)}>
+              <span>Активирани известия</span>
             </button>
           )}
           <button
@@ -11009,6 +11016,9 @@ function AdminMembersPageContent() {
             </div>
           </div>
         </div>
+      )}
+      {activeDevicesOpen && (isAdmin || isCoach) && clubId && (
+        <ActiveDevicesModal key={clubId} clubId={clubId} onClose={() => setActiveDevicesOpen(false)} />
       )}
       {guideOpen && (
         <div className="amp-overlay" onClick={() => setGuideOpen(false)}>
