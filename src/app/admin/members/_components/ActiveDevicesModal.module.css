@@ -1,0 +1,41 @@
+.modal.modal {
+  max-width: 680px;
+  max-height: min(86vh, 780px);
+  max-height: min(86dvh, 780px);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  color: #f3f4f6;
+}
+.title { gap: 12px; flex-shrink: 0; }
+.description { color: #aaa; font-size: 13px; margin: 0 0 20px; }
+.toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 16px; color: #bbb; font-size: 13px; }
+.refresh, .filter { border: 1px solid #ffffff26; border-radius: 8px; background: #ffffff08; color: #ddd; cursor: pointer; padding: 9px 12px; font: inherit; }
+.refresh:disabled { opacity: .5; cursor: wait; }
+.filters { display: grid; grid-template-columns: .7fr 1fr 1fr; gap: 8px; margin-bottom: 16px; }
+.filter { display: flex; align-items: center; justify-content: center; gap: 8px; font-size: 12px; }
+.filter > span { border-radius: 5px; background: #ffffff0d; padding: 2px 6px; }
+.active { color: #87ed9c; }
+.inactive { color: #ff9999; }
+.filter[aria-pressed="true"] { border-color: currentColor; background: #ffffff14; box-shadow: inset 0 -2px currentColor; }
+.all[aria-pressed="true"] { color: #fff; }
+.refresh:focus-visible, .filter:focus-visible { outline: 2px solid #fff; outline-offset: 3px; }
+.list { min-height: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; }
+.list ul { list-style: none; padding: 0; margin: 0; }
+.row { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 14px 4px; border-bottom: 1px solid #ffffff12; }
+.name { min-width: 0; overflow-wrap: anywhere; font-size: 14px; }
+.count { display: flex; align-items: center; gap: 9px; flex-shrink: 0; font-size: 11px; }
+.count strong { display: grid; place-items: center; min-width: 32px; height: 32px; padding: 0 5px; border: 1px solid currentColor; border-radius: 8px; font-size: 17px; background: #ffffff06; }
+.empty { text-align: center; padding: 28px 12px; font-size: 14px; }
+.empty { color: #aaa; }
+.error { color: #ff9999; background: #ff99990a; border: 1px solid #ff999933; border-radius: 8px; padding: 12px; margin-bottom: 12px; font-size: 13px; flex-shrink: 0; }
+.error p { margin: 0; }
+.error button { margin-top: 10px; }
+@media (max-width: 520px) {
+  .modal.modal { padding: 20px 14px; }
+  .filters { grid-template-columns: 1fr; gap: 6px; }
+  .filter { justify-content: space-between; }
+  .count { flex-direction: column; gap: 4px; max-width: 110px; text-align: center; }
+  .row { gap: 10px; }
+  .description { margin-bottom: 12px; }
+}
