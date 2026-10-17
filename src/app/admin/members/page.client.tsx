@@ -10288,6 +10288,7 @@ function AdminMembersPageContent() {
       {inactivePlayersOpen && canViewInactiveMembers && canManageMemberActions && (
         <InactivePlayersModal
           members={inactiveMembers}
+          isCovered={Boolean(selectedMember)}
           isReactivating={Boolean(reactivatingMemberId)}
           reactivatingMemberId={reactivatingMemberId}
           isDeletingPermanent={Boolean(deletingPermanentMemberId)}
@@ -10300,10 +10301,39 @@ function AdminMembersPageContent() {
           }}
           onSelectMember={(member) => {
             if (reactivatingMemberId || deletingPermanentMemberId || memberToPermanentDelete) return;
-            setInactivePlayersOpen(false);
             setSelectedMember(member);
           }}
           onReactivate={handleReactivateMember}
+          onBulkDelete={async (selectedMembers) => {
+            if (reactivatingMemberId || deletingPermanentMemberId) return;
+            setInactiveActionError("");
+            const failedNames: string[] = [];
+            try {
+              for (const member of selectedMembers) {
+                setDeletingPermanentMemberId(member.id);
+                try {
+                  const response = await fetch(`/api/admin/members/${member.id}`, {
+                    method: "PATCH",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ action: "delete_permanently" }),
+                  });
+                  if (!response.ok) {
+                    failedNames.push(member.fullName);
+                    continue;
+                  }
+                  setMembers((previous) => previous.filter((item) => item.id !== member.id));
+                  setSelectedMember((previous) => previous?.id === member.id ? null : previous);
+                } catch {
+                  failedNames.push(member.fullName);
+                }
+              }
+              if (failedNames.length > 0) {
+                setInactiveActionError(`Неуспешно изтриване: ${failedNames.join(", ")}. Опитай отново.`);
+              }
+            } finally {
+              setDeletingPermanentMemberId(null);
+            }
+          }}
           onPermanentDelete={(member) => {
             if (reactivatingMemberId || deletingPermanentMemberId) return;
             setInactiveActionError("");
