@@ -1,4 +1,5 @@
 "use client";
+import MatchAttendancePanel from "@/components/MatchAttendancePanel";
 import GroupAssignmentFeeNotice from "@/app/admin/members/_components/GroupAssignmentFeeNotice";
 import { previewGroupAssignmentFees, rebaseGroupAssignmentSelection, type GroupFeeSettings } from "@/lib/groupAssignmentFees";
 import MonthlyFeeModal from "@/app/admin/members/_components/MonthlyFeeModal";
@@ -6966,6 +6967,7 @@ function AdminMembersPageContent() {
                 </div>
               )}
             </div>
+            {clubId && <MatchAttendancePanel key={matchViewMatch.id} clubId={clubId} matchId={matchViewMatch.id} />}
             <div className="amp-modal-actions amp-modal-actions--end" style={{ marginTop: "8px" }}>
               <button
                 type="button"
@@ -9682,6 +9684,7 @@ function AdminMembersPageContent() {
                             <span className="amp-match-view-value">{dayDetailsActiveMatch.durationMinutes} мин</span>
                           </div>
                         )}
+                      {clubId && <MatchAttendancePanel key={dayDetailsActiveMatch.id} clubId={clubId} matchId={dayDetailsActiveMatch.id} />}
                       </div>
                       <div className="amp-modal-actions amp-modal-actions--end" style={{ marginTop: "8px" }}>
                         <button

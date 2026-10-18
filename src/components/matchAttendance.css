@@ -1,0 +1,17 @@
+.match-attendance-panel { margin-top: 18px; text-align: left; }
+.match-attendance-panel button.amp-training-tag { font-family: inherit; cursor: pointer; }
+.match-attendance-panel button.amp-training-tag:disabled { cursor: wait; opacity: .6; }
+.match-attendance-table-reason { display: block; margin-top: 4px; color: rgba(255, 255, 255, .65); font-size: 11px; overflow-wrap: anywhere; }
+.match-attendance-control { margin-top: 12px; text-align: left; }
+.match-attendance-control p { margin: 5px 0; }
+.match-attendance-present { color: #86efac; font-weight: 700; }
+.match-attendance-absent { color: #fca5a5; font-weight: 700; }
+.match-attendance-reason { font-size: 13px; overflow-wrap: anywhere; }
+.match-attendance-control:not(.match-attendance-control--member) button { border: 1px solid #ffffff40; border-radius: 10px; padding: 9px 14px; background: #ffffff12; color: inherit; cursor: pointer; font: inherit; }
+.match-attendance-control:not(.match-attendance-control--member) button:disabled { opacity: .5; cursor: default; }
+.match-attendance-control label { display: grid; gap: 6px; margin: 10px 0; font-size: 14px; }
+.match-attendance-control select, .match-attendance-control textarea { width: 100%; border: 1px solid #ffffff40; border-radius: 8px; background: #17202e; color: #fff; padding: 8px; font: inherit; }
+.match-attendance-control textarea { min-height: 70px; }
+.match-attendance-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.match-attendance-control [role=alert] { color: #fca5a5; }
+.match-attendance-error { color: #fca5a5; }

@@ -1,3 +1,4 @@
+import { matchPlayerWhere } from "@/lib/matchAttendanceRules";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { verifyAdminToken } from "@/lib/adminAuth";
@@ -106,8 +107,9 @@ export async function POST(
   if (conflict.blocking) return NextResponse.json({ error: conflict.blocking }, { status: 400 });
   matchConflictWarning = conflict.warning;
 
+  const roster = await prisma.player.findMany({ where: matchPlayerWhere({ clubId: id, customGroupId, teamGroups }), select: { id: true } });
   const match = await prisma.clubMatch.create({
-    data: { clubId: id, customGroupId, opponent, location, matchDate, matchTime, durationMinutes, isHome, teamGroups },
+    data: { clubId: id, customGroupId, opponent, location, matchDate, matchTime, durationMinutes, isHome, teamGroups, attendanceEnabled: true, players: { create: roster.map((player) => ({ playerId: player.id })) } },
     select: { id: true, customGroupId: true, opponent: true, location: true, matchDate: true, matchTime: true, durationMinutes: true, isHome: true, teamGroups: true },
   });
 

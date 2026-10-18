@@ -1,3 +1,4 @@
+import { AttendanceFilterSelect } from "@/components/AttendanceFilterSelect";
 import { useEffect, useRef, useState } from "react";
 import { buildYearlyPaymentReport, formatRecordedPaymentAmounts } from "@/lib/yearlyPaymentReport";
 import { NotificationImage } from "@/components/NotificationImage";
@@ -74,6 +75,7 @@ function AttendanceDashboard({
 
   const [from, setFrom] = useState(defaultFrom);
   const [to, setTo] = useState(todayIso);
+  const [eventType, setEventType] = useState<"training" | "match">("training");
   const [scopeType, setScopeType] = useState<"group" | "player">("group");
   const [groupScope, setGroupScope] = useState("");
   const [playerSearch, setPlayerSearch] = useState("");
@@ -280,7 +282,7 @@ function AttendanceDashboard({
           search.set("coachGroupId", coachGroupId);
         }
         const res = await fetch(
-          `/api/admin/clubs/${encodeURIComponent(clubId)}/training-attendance/report?${search.toString()}`,
+          `/api/admin/clubs/${encodeURIComponent(clubId)}/${eventType === "match" ? "matches/attendance-report" : "training-attendance/report"}?${search.toString()}`,
           { cache: "no-store" },
         );
         if (!res.ok) {
@@ -292,7 +294,7 @@ function AttendanceDashboard({
         const payload = (await res.json()) as AttendanceReportData;
         const reportData: AttendanceReportData = {
           ...payload,
-          trainingDates: [...payload.trainingDates].sort((a, b) => b.localeCompare(a)),
+          trainingDates: [...payload.trainingDates].sort((a, b) => b.slice(0, 10).localeCompare(a.slice(0, 10)) || (payload.events ? payload.events[b].time.localeCompare(payload.events[a].time) : b.localeCompare(a))),
         };
         if (cancelled) return;
         setData(reportData);
@@ -313,7 +315,7 @@ function AttendanceDashboard({
       clearTimeout(timer);
     };
      
-  }, [from, to, scopeType, groupScope, selectedPlayerId, selectedCustomGroupId, attendanceScopeKey]);
+  }, [from, to, scopeType, groupScope, selectedPlayerId, selectedCustomGroupId, attendanceScopeKey, eventType]);
 
   const formatDateHeader = (iso: string): string => {
     const parts = iso.slice(0, 10).split("-");
@@ -321,7 +323,8 @@ function AttendanceDashboard({
     const day = parts[2] ?? "01";
     const monthIdx = parseInt(month, 10) - 1;
     const shortMonths = ["Ян", "Фев", "Мар", "Апр", "Май", "Юни", "Юли", "Авг", "Сеп", "Окт", "Ное", "Дек"];
-    return `${day}\n${shortMonths[monthIdx] ?? ""}${iso.includes("#") ? `\n${iso.slice(11, 16)}` : ""}`;
+    const game = data?.events?.[iso];
+    return `${day}\n${shortMonths[monthIdx] ?? ""}${game ? `\n${game.time}${game.opponent ? `\n${game.opponent}` : ""}` : iso.includes("#") ? `\n${iso.slice(11, 16)}` : ""}`;
   };
 
   const emptyLabel = groupScope.startsWith("tg:")
@@ -368,12 +371,18 @@ function AttendanceDashboard({
           const separatorIdx = key.indexOf("|");
           const playerId = key.slice(0, separatorIdx);
           const trainingDate = key.slice(separatorIdx + 1);
+          const matchId = data?.events?.[trainingDate]?.matchId;
+          if (eventType === "match" && !matchId) throw new Error("Мачът не е намерен. Презаредете справката.");
           const res = await fetch(
-            `/api/admin/clubs/${encodeURIComponent(clubId)}/training-attendance`,
+            eventType === "match"
+              ? `/api/admin/clubs/${encodeURIComponent(clubId)}/matches/${encodeURIComponent(matchId!)}/attendance`
+              : `/api/admin/clubs/${encodeURIComponent(clubId)}/training-attendance`,
             {
               method: "PATCH",
               headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ playerId, trainingDate: trainingDate.slice(0, 10), trainingSessionId: trainingDate.includes("#") ? trainingDate.split("#")[1] : undefined, optedOut }),
+              body: JSON.stringify(eventType === "match"
+                ? { playerId, present: !optedOut, reasonCode: "other", reasonText: "Промяна направена от треньор" }
+                : { playerId, trainingDate: trainingDate.slice(0, 10), trainingSessionId: trainingDate.includes("#") ? trainingDate.split("#")[1] : undefined, optedOut }),
             },
           );
           if (!res.ok) {
@@ -397,6 +406,7 @@ function AttendanceDashboard({
               updatedAttendance[date] = {
                 present: !optedOut,
                 reasonCode: optedOut ? "other" : null,
+                reasonText: optedOut ? "Промяна направена от треньор" : null,
               };
             }
             return { ...p, attendance: updatedAttendance };
@@ -419,6 +429,18 @@ function AttendanceDashboard({
     setSaveError("");
   };
 
+  const reportTitle = eventType === "match" ? "Присъствия на мачове" : "Присъствия на тренировки";
+  const playerPercentage = (player: AttendanceReportData["players"][number]) => {
+    const dates = data?.trainingDates.filter((date) => eventType !== "match" || Boolean(player.attendance[date])) ?? [];
+    const present = dates.filter((date) => player.attendance[date]?.present ?? true).length;
+    return dates.length ? Math.round(present / dates.length * 100) : 0;
+  };
+  const eventPercentage = (date: string) => {
+    const players = data?.players.filter((player) => eventType !== "match" || Boolean(player.attendance[date])) ?? [];
+    const present = players.filter((player) => player.attendance[date]?.present ?? true).length;
+    return players.length ? Math.round(present / players.length * 100) : 0;
+  };
+
   const printAttendance = () => {
     if (!data || typeof window === "undefined") return;
 
@@ -434,14 +456,13 @@ function AttendanceDashboard({
     const tHeadHtml = `
       <tr>
         <th style="padding: 6px; text-align: left; border-bottom: 2px solid #ccc; white-space: nowrap;">Име</th>
-        ${data.trainingDates.map(d => `<th style="padding: 6px; border-bottom: 2px solid #ccc; text-align: center;">${formatDateHeader(d).replaceAll("\n", "<br>")}</th>`).join('')}
+        ${data.trainingDates.map(d => `<th style="padding: 6px; border-bottom: 2px solid #ccc; text-align: center;">${escapeHtml(formatDateHeader(d)).replaceAll("\n", "<br>")}</th>`).join('')}
         <th style="padding: 6px; border-bottom: 2px solid #ccc; text-align: center;">%</th>
       </tr>
     `;
 
     const tbodyHtml = data.players.map((player) => {
-      const presentCount = data.trainingDates.filter(d => player.attendance[d]?.present ?? true).length;
-      const pct = data.trainingDates.length > 0 ? Math.round((presentCount / data.trainingDates.length) * 100) : 0;
+      const pct = playerPercentage(player);
 
       const cellsHtml = data.trainingDates.map((d) => {
         const cell = player.attendance[d];
@@ -463,8 +484,7 @@ function AttendanceDashboard({
     let tfootHtml = "";
     if (scopeType === "group") {
       const footerCellsHtml = data.trainingDates.map((d) => {
-        const presentOnDate = data.players.filter(p => p.attendance[d]?.present ?? true).length;
-        const pct = data.players.length > 0 ? Math.round((presentOnDate / data.players.length) * 100) : 0;
+        const pct = eventPercentage(d);
         return `<td style="padding: 6px; text-align: center; font-weight: bold;">${pct}%</td>`;
       }).join("");
 
@@ -482,7 +502,7 @@ function AttendanceDashboard({
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Отчет присъствия (${from} до ${to})</title>
+  <title>${reportTitle} (${from} до ${to})</title>
   <style>
     body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; color: #111827; padding: 20px; margin: 0; }
     .pt { display: flex; gap: 8px; margin: 0 0 16px; }
@@ -500,7 +520,7 @@ function AttendanceDashboard({
     <button class="pt-c" onclick="window.close()">✕ Затвори</button>
     <button class="pt-p" onclick="window.print()">🖨 Принтирай</button>
   </div>
-  <div style="font-size:20px;font-weight:700;margin:0 0 16px;">Отчет присъствия (${from} до ${to})</div>
+  <div style="font-size:20px;font-weight:700;margin:0 0 16px;">${reportTitle} (${from} до ${to})</div>
   ${scopeTitle ? `<p style="margin:0 0 12px;color:#6b7280;font-size:13px;">${escapeHtml(scopeTitle)}</p>` : ""}
   <table>
     <thead>${tHeadHtml}</thead>
@@ -527,7 +547,7 @@ function AttendanceDashboard({
         <div className="rd-header">
           <h2 className="rd-title">
             <ClipboardListIcon size={20} />
-            Присъствия на тренировки
+            {reportTitle}
           </h2>
           {coachGroupId && (
             <p className="rd-subtitle">
@@ -537,6 +557,17 @@ function AttendanceDashboard({
         </div>
 
         <div className="rd-filters">
+          <div className="rd-field">
+            <label className="rd-label" htmlFor="attendance-event-type">Събития</label>
+            <AttendanceFilterSelect id="attendance-event-type" label="Събития" value={eventType} options={[{ value: "training", label: "Тренировки" }, { value: "match", label: "Мачове" }]} disabled={saving || pendingChanges.size > 0} title={pendingChanges.size > 0 ? "Запазете или откажете промените преди превключване." : undefined} onChange={(value) => {
+                setEventType(value as "training" | "match");
+                setData(null);
+                setError("");
+                setSaveError("");
+                setEditMode(false);
+                setPendingChanges(new Map());
+              }} />
+          </div>
           <div className="rd-field">
             <label className="rd-label">От</label>
             <div className="rd-select-wrap">
@@ -558,7 +589,7 @@ function AttendanceDashboard({
                 className="rd-date-input"
                 value={to}
                 min={from}
-                max={todayIso}
+                max={eventType === "training" ? todayIso : undefined}
                 onChange={(e) => setTo(e.target.value)}
               />
               <CalendarIcon size={16} />
@@ -566,66 +597,24 @@ function AttendanceDashboard({
           </div>
           <div className="rd-field">
             <label className="rd-label">Вид</label>
-            <div className="rd-select-wrap">
-              <select
-                className="rd-select"
-                value={scopeType}
-                onChange={(e) => {
-                  const next = e.target.value as "group" | "player";
+            <AttendanceFilterSelect label="Вид" value={scopeType} options={[{ value: "group", label: "Отбор" }, { value: "player", label: "Състезател" }]} onChange={(value) => {
+                  const next = value as "group" | "player";
                   setScopeType(next);
                   setData(null);
                   setError("");
-                  if (next === "player") {
-                    setPlayerSearch("");
-                    setSelectedPlayerId("");
-                  }
-                }}
-              >
-                <option value="group">Отбор</option>
-                <option value="player">Състезател</option>
-              </select>
-              <ChevronDownIcon />
-            </div>
+                  if (next === "player") { setPlayerSearch(""); setSelectedPlayerId(""); }
+                }} />
           </div>
           {scopeType === "group" ? (
             <>
               <div className="rd-field">
                 <label className="rd-label">Треньор</label>
-                <div className="rd-select-wrap">
-                  <select
-                    className="rd-select"
-                    value={groupScope}
-                    onChange={(e) => setGroupScope(e.target.value)}
-                  >
-                    {coachGroupsList.map((g) => (
-                      <option key={g.id} value={`cg:${g.id}`}>
-                        {g.name}
-                      </option>
-                    ))}
-                    {coachGroupsList.length === 0 && (
-                      <option value="" disabled>Няма треньорски групи</option>
-                    )}
-                  </select>
-                  <ChevronDownIcon />
-                </div>
+                <AttendanceFilterSelect label="Треньор" value={groupScope} options={coachGroupsList.map((group) => ({ value: `cg:${group.id}`, label: group.name }))} onChange={setGroupScope} />
               </div>
               {groupScope.startsWith("cg:") && customTrainingGroupsList.length > 0 && (
                 <div className="rd-field">
                   <label className="rd-label">Треньорска група</label>
-                  <div className="rd-select-wrap">
-                    <select
-                      className="rd-select"
-                      value={selectedCustomGroupId}
-                      onChange={(e) => setSelectedCustomGroupId(e.target.value)}
-                    >
-                      {customTrainingGroupsList.map((g) => (
-                        <option key={g.id} value={g.id}>
-                          {g.name}
-                        </option>
-                      ))}
-                    </select>
-                    <ChevronDownIcon />
-                  </div>
+                  <AttendanceFilterSelect label="Треньорска група" value={selectedCustomGroupId} options={customTrainingGroupsList.map((group) => ({ value: group.id, label: group.name }))} onChange={setSelectedCustomGroupId} />
                 </div>
               )}
             </>
@@ -680,7 +669,7 @@ function AttendanceDashboard({
         {data && (
           <>
             {data.trainingDates.length === 0 ? (
-              <p className="acd-empty">Няма тренировки в избрания период.</p>
+              <p className="acd-empty">{eventType === "match" ? "Няма мачове с включено присъствие в избрания период." : "Няма тренировки в избрания период."}</p>
             ) : data.players.length === 0 ? (
               <p className="acd-empty">{emptyLabel}</p>
             ) : (
@@ -690,7 +679,7 @@ function AttendanceDashboard({
                     <tr>
                       <th className="acd-th-name">Състезател</th>
                       {data.trainingDates.map((d) => (
-                        <th key={d} className="acd-th-date" title={d}>
+                        <th key={d} className="acd-th-date" title={formatDateHeader(d).replaceAll("\n", " ")}>
                           <span className="acd-date-label">{formatDateHeader(d)}</span>
                         </th>
                       ))}
@@ -699,13 +688,7 @@ function AttendanceDashboard({
                   </thead>
                   <tbody>
                     {data.players.map((player) => {
-                      const presentCount = data.trainingDates.filter(
-                        (d) => player.attendance[d]?.present ?? true,
-                      ).length;
-                      const pct =
-                        data.trainingDates.length > 0
-                          ? Math.round((presentCount / data.trainingDates.length) * 100)
-                          : 0;
+                      const pct = playerPercentage(player);
                       return (
                         <tr key={player.id}>
                           <td className="acd-td-name">{player.fullName}</td>
@@ -729,7 +712,7 @@ function AttendanceDashboard({
                               ? "Присъства"
                               : !hasPending && cell.reasonCode === "injury" ? "Контузия"
                               : !hasPending && cell.reasonCode === "sick" ? "Болен"
-                              : !hasPending && cell.reasonCode === "other" ? "Друга причина"
+                              : !hasPending && cell.reasonCode === "other" ? cell.reasonText || "Друга причина"
                               : !hasPending && cell.reasonCode === "limited_event" ? "Не е записан за ограниченото събитие"
                               : !hasPending && cell.reasonCode ? `Причина: ${cell.reasonCode}` : "Отказал се";
                             const displayReasonCode = hasPending ? (displayOptedOut ? "other" : null) : cell.reasonCode;
@@ -764,13 +747,7 @@ function AttendanceDashboard({
                       <tr className="acd-summary-row">
                         <td className="acd-td-name acd-summary-label">Средно</td>
                         {data.trainingDates.map((d) => {
-                          const presentOnDate = data.players.filter(
-                            (p) => p.attendance[d]?.present ?? true,
-                          ).length;
-                          const pct =
-                            data.players.length > 0
-                              ? Math.round((presentOnDate / data.players.length) * 100)
-                              : 0;
+                          const pct = eventPercentage(d);
                           return (
                             <td
                               key={d}

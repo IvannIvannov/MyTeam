@@ -3535,7 +3535,7 @@
 
 .rd-select {
   appearance: none;
-  padding: 0 12px 0 12px;
+  padding: 0 32px;
   height: 36px;
   border-radius: 6px;
   border: 1px solid rgba(255, 255, 255, 0.1);
@@ -3552,6 +3552,59 @@
 .rd-select:focus {
   border-color: rgba(50, 205, 50, 0.4);
 }
+
+.acd-dialog .rd-filters select.rd-select {
+  direction: ltr;
+  box-sizing: border-box;
+  padding-inline: 32px;
+  text-align: center;
+  text-align-last: center;
+}
+
+.acd-dialog .rd-filters select.rd-select option {
+  direction: ltr;
+  text-align: center;
+  text-align-last: center;
+}
+
+.acd-custom-select { min-width: 130px; }
+.acd-dialog .acd-custom-select .acd-select-trigger {
+  position: relative;
+  width: 100%;
+  padding-inline: 32px;
+  text-align: center;
+  color: #ffffff;
+  font-family: inherit;
+}
+.acd-select-trigger:focus-visible { outline: 2px solid rgba(50, 205, 50, .65); outline-offset: 2px; }
+.acd-select-trigger:disabled { opacity: .5; cursor: default; }
+.acd-select-options {
+  position: absolute;
+  top: calc(100% + 5px);
+  left: 0;
+  right: 0;
+  z-index: 60;
+  max-height: 240px;
+  overflow-y: auto;
+  margin: 0;
+  padding: 4px;
+  list-style: none;
+  border: 1px solid rgba(255, 255, 255, .18);
+  border-radius: 8px;
+  background: #1a1a1a;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, .45);
+}
+.acd-select-option {
+  padding: 9px 12px;
+  border-radius: 5px;
+  color: #ffffff;
+  font-size: 14px;
+  text-align: center;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+.acd-select-option--active { background: rgba(50, 205, 50, .15); }
+.acd-select-option[aria-selected="true"] { color: #9eff9e; font-weight: 600; }
 
 .rd-select option {
   background: #1a1a1a;
@@ -4778,12 +4831,15 @@
 .rd-date-input {
   appearance: none;
   height: 36px;
-  padding: 0 12px 0 36px;
+  min-width: 180px;
+  padding: 0 32px;
   border-radius: 6px;
   border: 1px solid rgba(255, 255, 255, 0.1);
   background: rgba(255, 255, 255, 0.05);
   color: #ffffff;
   font-size: 14px;
+  font-family: inherit;
+  font-variant-numeric: tabular-nums;
   cursor: pointer;
   outline: none;
   transition: border-color 0.15s;

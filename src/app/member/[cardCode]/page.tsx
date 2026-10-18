@@ -1,4 +1,5 @@
 ﻿"use client";
+import MatchAttendanceControl from "@/components/MatchAttendanceControl";
 import { getTrainingCountdownCandidates, getTrainingDateTimeMs } from "@/lib/memberScheduleCountdown";
 
 import { use, useEffect, useRef, useState, type CSSProperties } from "react";
@@ -118,6 +119,10 @@ interface IrisOnlinePayment {
 }
 
 interface MemberMatch {
+  attendanceEnabled: boolean;
+  present: boolean;
+  reasonCode: string | null;
+  reasonText: string | null;
   id: string;
   opponent: string;
   location: string;
@@ -837,6 +842,7 @@ export default function MemberCardPage({
       if (res.ok) {
         const data = await res.json() as { matches?: MemberMatch[] };
         setMemberMatches(data.matches ?? []);
+        setMatchDetailsMatch((current) => current ? data.matches?.find((match) => match.id === current.id) ?? null : null);
       }
     } catch {
       // non-critical — calendar still shows trainings
@@ -3384,6 +3390,7 @@ export default function MemberCardPage({
                                   </div>
                                 )}
                               </div>
+                              {match.attendanceEnabled && <MatchAttendanceControl attendance={match} endpoint={`/api/members/${normalizedCardCode}/matches/${match.id}/attendance`} onSaved={fetchMemberMatches} />}
                             </div>
                           ))}
                         </div>
@@ -3460,6 +3467,7 @@ export default function MemberCardPage({
                   </div>
                 )}
               </div>
+              {matchDetailsMatch.attendanceEnabled && <MatchAttendanceControl key={matchDetailsMatch.id} attendance={matchDetailsMatch} endpoint={`/api/members/${normalizedCardCode}/matches/${matchDetailsMatch.id}/attendance`} onSaved={fetchMemberMatches} />}
             </div>
           </div>
         )}

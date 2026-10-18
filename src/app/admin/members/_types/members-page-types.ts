@@ -227,11 +227,12 @@ interface AttendanceReportPlayer {
   id: string;
   fullName: string;
   teamGroup: number | null;
-  attendance: Record<string, { present: boolean; reasonCode: string | null }>;
+  attendance: Record<string, { present: boolean; reasonCode: string | null; reasonText?: string | null }>;
 }
 
 interface AttendanceReportData {
   trainingDates: string[];
+  events?: Record<string, { matchId: string; date: string; time: string; opponent: string }>;
   players: AttendanceReportPlayer[];
 }
 

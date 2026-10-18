@@ -278,6 +278,7 @@ model Player {
   club                 Club                            @relation(fields: [clubId], references: [id], onDelete: Cascade)
   pushSubscriptions    PushSubscription[]
   trainingOptOuts      TrainingOptOut[]
+  matchAttendance      ClubMatchPlayer[]
   trainingSessionRows  TrainingSessionPlayer[]
   discountUsages       PartnerDiscountUsage[]
   customTrainingGroups ClubCustomTrainingGroupPlayer[]
@@ -388,6 +389,8 @@ model TrainingSessionPlayer {
 }
 
 model ClubMatch {
+  attendanceEnabled Boolean @default(false) @map("attendance_enabled")
+  players ClubMatchPlayer[]
   id              String                   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   clubId          String                   @map("club_id") @db.Uuid
   customGroupId   String?                  @map("custom_group_id") @db.Uuid
@@ -700,4 +703,18 @@ model LimitedTrainingRegistration {
   @@index([eventId, registeredAt])
   @@index([playerId])
   @@map("limited_training_registrations")
+}
+
+model ClubMatchPlayer {
+  matchId String @map("match_id") @db.Uuid
+  playerId String @map("player_id") @db.Uuid
+  present Boolean @default(true)
+  reasonCode String? @map("reason_code")
+  reasonText String? @map("reason_text")
+  match ClubMatch @relation(fields: [matchId], references: [id], onDelete: Cascade)
+  player Player @relation(fields: [playerId], references: [id], onDelete: Cascade)
+
+  @@id([matchId, playerId])
+  @@index([playerId])
+  @@map("club_match_players")
 }

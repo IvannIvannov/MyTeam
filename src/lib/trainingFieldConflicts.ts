@@ -818,7 +818,7 @@ export async function checkAwayMatchTrainingConflict(input: {
         existingCustomGroupId: match.customGroupId,
       })) {
         return {
-          blocking: `Match overlaps with another match for the same team on ${formatIsoDateForBgDisplay(matchDate)} from ${startTime} to ${endTime} against ${match.opponent}.`,
+          blocking: `Мачът се застъпва с друг мач на същия отбор на ${formatIsoDateForBgDisplay(matchDate)} от ${startTime} до ${endTime} срещу ${match.opponent}.`,
           warning: null,
         };
       }
