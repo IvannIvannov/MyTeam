@@ -1,8 +1,9 @@
+import { isMatchEventType } from "@/lib/matchEventType";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { verifyAdminToken } from "@/lib/adminAuth";
 import { isIsoDate, isValidTrainingTime } from "@/lib/training";
-import { checkAwayMatchTrainingConflict } from "@/lib/trainingFieldConflicts";
+import { getMatchOverlapWarnings } from "@/lib/matchConflicts";
 import { hasMatchFinished, parseMatchResult } from "@/lib/matchResult";
 import {
   hasMatchScheduleChanged,
@@ -43,7 +44,7 @@ export async function PATCH(
     select: {
       id: true,
       customGroupId: true,
-      opponent: true,
+      eventType: true, opponent: true,
       location: true,
       matchDate: true,
       matchTime: true,
@@ -59,6 +60,10 @@ export async function PATCH(
   const body = await request.json().catch(() => ({})) as Record<string, unknown>;
   const update: Record<string, unknown> = {};
 
+  if (Object.hasOwn(body, "eventType")) {
+    if (!isMatchEventType(body.eventType)) return NextResponse.json({ error: "Невалиден вид събитие." }, { status: 400 });
+    update.eventType = body.eventType;
+  }
   if (Object.hasOwn(body, "opponent")) {
     const opponent = String(body.opponent ?? "").trim();
     if (opponent.length > 200) return NextResponse.json({ error: "Съперник е твърде дълъг." }, { status: 400 });
@@ -118,15 +123,14 @@ export async function PATCH(
   }
   const scheduleChanged = finalDate !== existing.matchDate || finalTime !== existing.matchTime || finalDuration !== existing.durationMinutes || finalIsHome !== existing.isHome || finalCustomGroupId !== existing.customGroupId || JSON.stringify(finalTeamGroups) !== JSON.stringify(existing.teamGroups);
   if (scheduleChanged) {
-    const conflict = await checkAwayMatchTrainingConflict({ clubId: id, matchDate: finalDate, matchTime: finalTime, durationMinutes: finalDuration, teamGroups: finalTeamGroups, customGroupId: finalCustomGroupId, isHome: finalIsHome, excludeMatchId: matchId });
-    if (conflict.blocking) return NextResponse.json({ error: conflict.blocking }, { status: 400 });
-    matchConflictWarning = conflict.warning;
+    const warnings = await getMatchOverlapWarnings({ clubId: id, matchDate: finalDate, matchTime: finalTime, durationMinutes: finalDuration, isHome: finalIsHome, excludeMatchId: matchId });
+    matchConflictWarning = warnings.length ? warnings.join("\n") : null;
   }
 
   const match = await prisma.clubMatch.update({
     where: { id: matchId },
     data: update,
-    select: { id: true, customGroupId: true, opponent: true, location: true, matchDate: true, matchTime: true, durationMinutes: true, isHome: true, teamGroups: true, homeScore: true, awayScore: true },
+    select: { id: true, customGroupId: true, eventType: true, opponent: true, location: true, matchDate: true, matchTime: true, durationMinutes: true, isHome: true, teamGroups: true, homeScore: true, awayScore: true },
   });
 
   let notifications = null;

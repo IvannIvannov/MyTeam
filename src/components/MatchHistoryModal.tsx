@@ -3,6 +3,7 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import Image from "next/image";
+import { matchEventTypeLabel } from "@/lib/matchEventType";
 import { Check, ChevronRight, X } from "lucide-react";
 import { getTodayIsoDateInTimeZone } from "@/lib/training";
 import MatchAttendancePanel from "@/components/MatchAttendancePanel";
@@ -11,6 +12,7 @@ import { formatMatchResult, getMatchOutcome, hasMatchFinished, parseMatchResult 
 import "@/components/matchHistory.css";
 
 type HistoryMatch = {
+  eventType?: string;
   homeScore: number | null; awayScore: number | null;
   id: string; opponent: string; location: string; matchDate: string; matchTime: string;
   durationMinutes: number; isHome: boolean; teamGroups: number[]; attendanceEnabled: boolean;
@@ -55,6 +57,7 @@ function MatchHistoryDetailsModal({ match, clubId, clubName, clubLogoUrl, onClos
     return () => { if (previousFocus instanceof HTMLElement) previousFocus.focus(); };
   }, []);
   const details = [
+    ["Вид събитие", matchEventTypeLabel(match.eventType)],
     ["Отбор", match.customGroup?.name || (match.teamGroups.length ? `Набор: ${match.teamGroups.join(", ")}` : "Всички отбори")],
     ["Място", match.location],
     ["Продължителност", `${match.durationMinutes} мин`],
@@ -63,7 +66,7 @@ function MatchHistoryDetailsModal({ match, clubId, clubName, clubLogoUrl, onClos
     <div className="amp-modal amp-modal--match-history amp-modal--match-history-details" role="dialog" aria-modal="true" aria-labelledby={titleId} onClick={(event) => event.stopPropagation()} onKeyDown={(event) => { if (event.key === "Escape") { event.stopPropagation(); onClose(); } }}>
       <div className="amp-modal-tint" aria-hidden="true" />
       <h2 id={titleId} className="amp-modal-title">
-        <span className="amp-modal-title-gradient">Детайли за мача</span>
+        <span className="amp-modal-title-gradient">{matchEventTypeLabel(match.eventType)} · Детайли</span>
         <button ref={closeButton} type="button" className="amp-modal-close" aria-label="Затвори детайлите" onClick={onClose}><X size={18} /></button>
       </h2>
       <div className="amp-modal-body">
@@ -180,7 +183,7 @@ export default function MatchHistoryModal({ clubId, clubName = "Нашият о�
           {data.matches.map((match) => <article key={match.id} className={`match-history-card match-history-card--${getMatchOutcome(match)}`}>
             <button type="button" className="match-history-summary" aria-haspopup="dialog" onClick={() => setSelectedMatch(match)}>
               <span className="match-history-date">{new Date(`${match.matchDate}T12:00:00Z`).toLocaleDateString("bg-BG", { day: "2-digit", month: "2-digit", year: "numeric" })} · {match.matchTime}</span>
-              <strong>{match.opponent ? `срещу ${match.opponent}` : "Мач без зададен съперник"}</strong>
+              <strong>{matchEventTypeLabel(match.eventType)} · {match.opponent ? `срещу ${match.opponent}` : "Мач без зададен съперник"}</strong>
               <span className="match-history-meta">{match.customGroup?.name || (match.teamGroups.length ? `Набор: ${match.teamGroups.join(", ")}` : "Всички отбори")} · {match.isHome ? "Домакин" : "Гост"}</span>
               <span className="match-history-meta">{match.location}</span>
               <span className={`match-history-score${match.homeScore === null ? " match-history-score--empty" : ""}`} aria-label={`Резултат, домакин : гост: ${formatMatchResult(match)}`}>{formatMatchResult(match)}</span>

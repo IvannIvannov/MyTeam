@@ -5,7 +5,7 @@ import { PATCH } from "./route";
 const mocks = vi.hoisted(() => ({ auth: vi.fn(), find: vi.fn(), update: vi.fn(), conflict: vi.fn() }));
 vi.mock("@/lib/adminAuth", () => ({ verifyAdminToken: mocks.auth }));
 vi.mock("@/lib/db", () => ({ prisma: { clubMatch: { findFirst: mocks.find, update: mocks.update } } }));
-vi.mock("@/lib/trainingFieldConflicts", () => ({ checkAwayMatchTrainingConflict: mocks.conflict }));
+vi.mock("@/lib/matchConflicts", () => ({ getMatchOverlapWarnings: mocks.conflict }));
 vi.mock("@/lib/push/matchScheduleNotifications", () => ({ hasMatchScheduleChanged: () => false, sendMatchScheduleNotifications: vi.fn() }));
 const match = { id: "match", customGroupId: null, opponent: "Съперник", location: "Стадион", matchDate: "2026-10-19", matchTime: "13:00", durationMinutes: 90, isHome: true, teamGroups: [], homeScore: null, awayScore: null };
 async function update(body: unknown, authenticated = true) {
@@ -17,10 +17,18 @@ describe("recording game results", () => {
     mocks.auth.mockResolvedValue({ roles: ["coach"] });
     mocks.find.mockResolvedValue(match);
     mocks.update.mockImplementation(({ data }) => Promise.resolve({ ...match, ...data }));
-    mocks.conflict.mockResolvedValue({ blocking: null, warning: null });
+    mocks.conflict.mockResolvedValue([]);
   });
   afterEach(() => vi.useRealTimers());
   it("requires authentication", async () => { expect((await update({ homeScore: 1, awayScore: 0 }, false)).status).toBe(401); expect(mocks.find).not.toHaveBeenCalled(); });
+  it("saves an overlapping game and returns a warning instead of rejecting it", async () => {
+    mocks.conflict.mockResolvedValue(["Застъпване с домакински мач"]);
+    const response = await update({ matchTime: "13:15" });
+    expect(response.status).toBe(200);
+    expect((await response.json()).warning).toBe("Застъпване с домакински мач");
+    expect(mocks.update).toHaveBeenCalled();
+    expect(mocks.conflict).toHaveBeenCalledWith(expect.objectContaining({ excludeMatchId: "match", isHome: true }));
+  });
   it("saves a finished game's result without rechecking old schedule conflicts", async () => {
     const response = await update({ homeScore: 0, awayScore: 0 });
     expect(response.status).toBe(200);

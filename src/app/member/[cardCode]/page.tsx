@@ -1,4 +1,5 @@
 ﻿"use client";
+import { matchEventTypeLabel } from "@/lib/matchEventType";
 import MatchAttendanceControl from "@/components/MatchAttendanceControl";
 import { getTrainingCountdownCandidates, getTrainingDateTimeMs } from "@/lib/memberScheduleCountdown";
 
@@ -119,6 +120,7 @@ interface IrisOnlinePayment {
 }
 
 interface MemberMatch {
+  eventType?: string;
   attendanceEnabled: boolean;
   present: boolean;
   reasonCode: string | null;
@@ -552,6 +554,7 @@ export default function MemberCardPage({
         date: match.matchDate,
         time: match.matchTime?.trim() || null,
         opponent: match.opponent,
+        eventLabel: matchEventTypeLabel(match.eventType),
         targetMs: getTrainingDateTimeMs(match.matchDate, match.matchTime),
       })),
     ]
@@ -2410,7 +2413,7 @@ export default function MemberCardPage({
           ) : nextScheduleEvent && nextScheduleCountdown ? (
             <div className={`training-next-card${nextScheduleEvent.type === "match" ? " training-next-card--match" : ""}`}>
               <p className="training-next-title">
-                {nextScheduleEvent.type === "match" ? "Следващ мач" : "Следваща тренировка"}: {formatIsoDateForBgDisplay(nextScheduleEvent.date)}
+                {nextScheduleEvent.type === "match" ? nextScheduleEvent.eventLabel : "Следваща тренировка"}: {formatIsoDateForBgDisplay(nextScheduleEvent.date)}
                 {nextScheduleEvent.time ? ` ${nextScheduleEvent.time}` : ""}
                 {nextScheduleEvent.type === "match" && nextScheduleEvent.opponent ? ` срещу ${nextScheduleEvent.opponent}` : ""}
               </p>
@@ -2873,10 +2876,10 @@ export default function MemberCardPage({
                                         setMatchDetailsMatch(dayMatches[0]!);
                                         setMatchDetailsPopupOpen(true);
                                       }}
-                                      aria-label={`Мач: ${dayMatches[0]!.opponent}, ${new Date(`${cellDate}T12:00:00.000Z`).toLocaleDateString("bg-BG", { day: "2-digit", month: "2-digit" })}`}
+                                      aria-label={`${matchEventTypeLabel(dayMatches[0]!.eventType)}: ${dayMatches[0]!.opponent}, ${new Date(`${cellDate}T12:00:00.000Z`).toLocaleDateString("bg-BG", { day: "2-digit", month: "2-digit" })}`}
                                     >
                                       <span className="training-calendar-day-number">{dayNumber}</span>
-                                      <span className="training-calendar-time">{dayMatches[0]!.matchTime}</span>
+                                      <span className="training-calendar-time">{matchEventTypeLabel(dayMatches[0]!.eventType)} · {dayMatches[0]!.matchTime}</span>
                                     </button>
                                   );
                                 }
@@ -3359,7 +3362,7 @@ export default function MemberCardPage({
                           {trainingDetailsMatches.map((match) => (
                             <div key={match.id} className="member-day-match-card">
                               <div className="member-day-match-card-header">
-                                <span className="member-day-match-opponent">{match.opponent}</span>
+                                <span className="member-day-match-opponent">{matchEventTypeLabel(match.eventType)} · {match.opponent}</span>
                                 <span className={`match-details-badge${match.isHome ? " match-details-badge--home" : " match-details-badge--away"}`}>
                                   {match.isHome ? "Домакин" : "Гост"}
                                 </span>
@@ -3431,7 +3434,7 @@ export default function MemberCardPage({
                 <XIcon size={16} />
               </button>
               <div className="pm-header">
-                <h2 className="pm-title">Мач</h2>
+                <h2 className="pm-title">{matchEventTypeLabel(matchDetailsMatch.eventType)}</h2>
               </div>
               <p className="match-details-date">
                 {new Date(`${matchDetailsMatch.matchDate}T12:00:00.000Z`).toLocaleDateString("bg-BG", {
