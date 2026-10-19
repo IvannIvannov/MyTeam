@@ -98,7 +98,6 @@
 .match-history-summary strong { overflow-wrap: anywhere; }
 .match-history-date { color: #fdba74; font-size: 13px; }
 .match-history-meta { color: rgba(255, 255, 255, .65); font-size: 12px; overflow-wrap: anywhere; }
-.match-history-arrow { position: absolute; right: 14px; top: 16px; }
 .match-history-score { position: absolute; right: 40px; top: 50%; transform: translateY(-50%); color: #fdba74; font-size: 24px; font-weight: 800; font-variant-numeric: tabular-nums; }
 .match-history-score--empty { max-width: 90px; text-align: center; line-height: 1.4; font-size: 12px; font-weight: 500; color: rgba(255, 255, 255, .5); }
 .match-result-fields { border: 0; padding: 0; margin: 12px 0; min-width: 0; }

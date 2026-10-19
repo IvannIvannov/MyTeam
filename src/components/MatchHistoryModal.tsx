@@ -4,7 +4,7 @@ import { useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import Image from "next/image";
 import { matchEventTypeLabel } from "@/lib/matchEventType";
-import { Check, ChevronRight, X } from "lucide-react";
+import { Check, X } from "lucide-react";
 import { getTodayIsoDateInTimeZone } from "@/lib/training";
 import MatchAttendancePanel from "@/components/MatchAttendancePanel";
 import { AttendanceFilterSelect } from "@/components/AttendanceFilterSelect";
@@ -190,7 +190,6 @@ export default function MatchHistoryModal({ clubId, clubName = "Нашият о�
               <span className="match-history-meta">{match.customGroup?.name || (match.teamGroups.length ? `Набор: ${match.teamGroups.join(", ")}` : "Всички отбори")} · {match.isHome ? "Домакин" : "Гост"}</span>
               <span className="match-history-meta">{match.location}</span>
               <span className={`match-history-score${match.homeScore === null ? " match-history-score--empty" : ""}`} aria-label={`Резултат, домакин : гост: ${formatMatchResult(match)}`}>{formatMatchResult(match)}</span>
-              <ChevronRight className="match-history-arrow" size={18} aria-hidden="true" />
             </button>
           </article>)}
         </div>}
