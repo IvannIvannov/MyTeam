@@ -1,4 +1,5 @@
 ﻿"use client";
+import MemberMatchExtraDetails from "@/components/MemberMatchExtraDetails";
 import { matchEventTypeLabel } from "@/lib/matchEventType";
 import MemberMatchDetailsModal, { type MemberMatchDetails as MemberMatch } from "@/components/MemberMatchDetailsModal";
 import MatchAttendanceControl from "@/components/MatchAttendanceControl";
@@ -3363,6 +3364,7 @@ export default function MemberCardPage({
                                 </span>
                               </div>
                               <div className="match-details-body">
+                                <MemberMatchExtraDetails category={match.category} description={match.description} />
                                 <div className="match-details-row">
                                   <span className="match-details-label">Дата</span>
                                   <span className="match-details-value">

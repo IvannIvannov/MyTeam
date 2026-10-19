@@ -1,5 +1,5 @@
 "use client";
-import { matchCategoryLabel } from "@/lib/matchCategory";
+import MemberMatchExtraDetails from "@/components/MemberMatchExtraDetails";
 
 import { X as XIcon } from "lucide-react";
 import { matchEventTypeLabel } from "@/lib/matchEventType";
@@ -64,8 +64,7 @@ export default function MemberMatchDetailsModal({ match, matches, cardCode, onSe
           })}
         </p>
         <div className="match-details-body">
-          <div className="match-details-row"><span className="match-details-label">Характер на срещата</span><span className="match-details-value">{matchCategoryLabel(match.category)}</span></div>
-          {match.description && <div className="match-details-row"><span className="match-details-label">Описание</span><span className="match-details-value" style={{ whiteSpace: "pre-wrap" }}>{match.description}</span></div>}
+          <MemberMatchExtraDetails category={match.category} description={match.description} />
           <div className="match-details-row">
             <span className="match-details-label">Противник</span>
             <span className="match-details-value">{match.opponent}</span>
