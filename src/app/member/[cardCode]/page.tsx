@@ -1,5 +1,6 @@
 ﻿"use client";
 import { matchEventTypeLabel } from "@/lib/matchEventType";
+import MemberMatchDetailsModal, { type MemberMatchDetails as MemberMatch } from "@/components/MemberMatchDetailsModal";
 import MatchAttendanceControl from "@/components/MatchAttendanceControl";
 import { getTrainingCountdownCandidates, getTrainingDateTimeMs } from "@/lib/memberScheduleCountdown";
 
@@ -119,21 +120,7 @@ interface IrisOnlinePayment {
   qrUrl: string;
 }
 
-interface MemberMatch {
-  eventType?: string;
-  attendanceEnabled: boolean;
-  present: boolean;
-  reasonCode: string | null;
-  reasonText: string | null;
-  id: string;
-  opponent: string;
-  location: string;
-  matchDate: string;
-  matchTime: string;
-  isHome: boolean;
-  durationMinutes: number | null;
-  teamGroups: number[];
-}
+
 
 type TrainingOptOutReasonCode = "injury" | "sick" | "other";
 
@@ -2880,6 +2867,7 @@ export default function MemberCardPage({
                                     >
                                       <span className="training-calendar-day-number">{dayNumber}</span>
                                       <span className="training-calendar-time">{matchEventTypeLabel(dayMatches[0]!.eventType)} · {dayMatches[0]!.matchTime}</span>
+                                      {dayMatches.length > 1 && <span className="training-calendar-time">+{dayMatches.length - 1} събития</span>}
                                     </button>
                                   );
                                 }
@@ -3425,54 +3413,14 @@ export default function MemberCardPage({
         )}
 
         {matchDetailsPopupOpen && matchDetailsMatch && (
-          <div
-            className="pm-overlay"
-            onClick={() => setMatchDetailsPopupOpen(false)}
-          >
-            <div className="pm-modal member-match-details-popup" onClick={(e) => e.stopPropagation()}>
-              <button className="pm-close" onClick={() => setMatchDetailsPopupOpen(false)}>
-                <XIcon size={16} />
-              </button>
-              <div className="pm-header">
-                <h2 className="pm-title">{matchEventTypeLabel(matchDetailsMatch.eventType)}</h2>
-              </div>
-              <p className="match-details-date">
-                {new Date(`${matchDetailsMatch.matchDate}T12:00:00.000Z`).toLocaleDateString("bg-BG", {
-                  weekday: "long",
-                  day: "2-digit",
-                  month: "long",
-                  year: "numeric",
-                })}
-              </p>
-              <div className="match-details-body">
-                <div className="match-details-row">
-                  <span className="match-details-label">Противник</span>
-                  <span className="match-details-value">{matchDetailsMatch.opponent}</span>
-                </div>
-                <div className="match-details-row">
-                  <span className="match-details-label">Час</span>
-                  <span className="match-details-value">{matchDetailsMatch.matchTime}</span>
-                </div>
-                <div className="match-details-row">
-                  <span className="match-details-label">Място</span>
-                  <span className="match-details-value">{matchDetailsMatch.location}</span>
-                </div>
-                <div className="match-details-row">
-                  <span className="match-details-label">Домакин/Гост</span>
-                  <span className={`match-details-badge${matchDetailsMatch.isHome ? " match-details-badge--home" : " match-details-badge--away"}`}>
-                    {matchDetailsMatch.isHome ? "Домакин" : "Гост"}
-                  </span>
-                </div>
-                {matchDetailsMatch.durationMinutes && (
-                  <div className="match-details-row">
-                    <span className="match-details-label">Продължителност</span>
-                    <span className="match-details-value">{matchDetailsMatch.durationMinutes} мин</span>
-                  </div>
-                )}
-              </div>
-              {matchDetailsMatch.attendanceEnabled && <MatchAttendanceControl key={matchDetailsMatch.id} attendance={matchDetailsMatch} endpoint={`/api/members/${normalizedCardCode}/matches/${matchDetailsMatch.id}/attendance`} onSaved={fetchMemberMatches} />}
-            </div>
-          </div>
+          <MemberMatchDetailsModal
+            match={matchDetailsMatch}
+            matches={memberMatches.filter((match) => match.matchDate === matchDetailsMatch.matchDate)}
+            cardCode={normalizedCardCode}
+            onSelect={setMatchDetailsMatch}
+            onClose={() => setMatchDetailsPopupOpen(false)}
+            onSaved={fetchMemberMatches}
+          />
         )}
 
         {trainingConfirmModalOpen && trainingConfirmAction && trainingDetailsItem && (
