@@ -1,4 +1,5 @@
 "use client";
+import { matchCategoryLabel } from "@/lib/matchCategory";
 
 import { useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
@@ -12,6 +13,8 @@ import { formatMatchResult, getMatchOutcome, hasMatchFinished, parseMatchResult 
 import "@/components/matchHistory.css";
 
 type HistoryMatch = {
+  description?: string;
+  category?: string | null;
   eventType?: string;
   homeScore: number | null; awayScore: number | null;
   id: string; opponent: string; location: string; matchDate: string; matchTime: string;
@@ -60,6 +63,8 @@ function MatchHistoryDetailsModal({ match, clubId, clubName, clubLogoUrl, onClos
     return () => { active.current = false; if (previousFocus instanceof HTMLElement) previousFocus.focus(); };
   }, []);
   const details = [
+    ["Характер на срещата", matchCategoryLabel(match.category)],
+    ["Описание", match.description || "—"],
     ["Вид събитие", matchEventTypeLabel(match.eventType)],
     ["Отбор", match.customGroup?.name || (match.teamGroups.length ? `Набор: ${match.teamGroups.join(", ")}` : "Всички отбори")],
     ["Място", match.location],

@@ -136,6 +136,7 @@
 .match-history-pagination { display: flex; justify-content: center; align-items: center; gap: 16px; margin-top: 20px; }
 @media (max-width: 640px) {
   .amp-modal.amp-modal--match-history { padding: 20px 16px; }
-  .match-history-filters { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .amp-modal--match-history .match-history-filters { grid-template-columns: minmax(0, 1fr); }
+  .match-history-filters > .amp-edit-field { grid-column: 1 / -1; width: 100%; }
   .match-history-search { grid-column: 1 / -1; }
 }

@@ -1,10 +1,13 @@
 "use client";
+import { matchCategoryLabel } from "@/lib/matchCategory";
 
 import { X as XIcon } from "lucide-react";
 import { matchEventTypeLabel } from "@/lib/matchEventType";
 import MatchAttendanceControl from "@/components/MatchAttendanceControl";
 
 export interface MemberMatchDetails {
+  description?: string;
+  category?: string | null;
   eventType?: string;
   attendanceEnabled: boolean;
   present: boolean;
@@ -61,6 +64,8 @@ export default function MemberMatchDetailsModal({ match, matches, cardCode, onSe
           })}
         </p>
         <div className="match-details-body">
+          <div className="match-details-row"><span className="match-details-label">Характер на срещата</span><span className="match-details-value">{matchCategoryLabel(match.category)}</span></div>
+          {match.description && <div className="match-details-row"><span className="match-details-label">Описание</span><span className="match-details-value" style={{ whiteSpace: "pre-wrap" }}>{match.description}</span></div>}
           <div className="match-details-row">
             <span className="match-details-label">Противник</span>
             <span className="match-details-value">{match.opponent}</span>

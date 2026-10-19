@@ -1,4 +1,6 @@
 "use client";
+import MatchExtraFields from "@/components/MatchExtraFields";
+import { matchCategoryLabel } from "@/lib/matchCategory";
 import { MATCH_EVENT_TYPES, matchEventTypeLabel, type MatchEventType } from "@/lib/matchEventType";
 import MatchOverlapWarning from "@/components/MatchOverlapWarning";
 import { MatchResultFields } from "@/components/MatchResultFields";
@@ -826,7 +828,7 @@ function AdminMembersPageContent() {
   const [matchEditorError, setMatchEditorError] = useState("");
   const [matchEventType, setMatchEventType] = useState<MatchEventType | null>(null);
   const [matchSelectedDates, setMatchSelectedDates] = useState<string[]>([]);
-  const [matchDetailsPerDay, setMatchDetailsPerDay] = useState<Record<string, { opponent: string; location: string; time: string; duration: string; isHome: boolean | null }>>({});
+  const [matchDetailsPerDay, setMatchDetailsPerDay] = useState<Record<string, { description?: string; category?: string; opponent: string; location: string; time: string; duration: string; isHome: boolean | null }>>({});
   const [matchTeamGroups, setMatchTeamGroups] = useState<number[]>([]);
   const [matchExistingIdByDate, setMatchExistingIdByDate] = useState<Record<string, string>>({});
   const [clubMatches, setClubMatches] = useState<ClubMatch[]>([]);
@@ -835,7 +837,7 @@ function AdminMembersPageContent() {
   const [matchEditTarget, setMatchEditTarget] = useState<ClubMatch | null>(null);
   const [dayDetailsMatchEditOpen, setDayDetailsMatchEditOpen] = useState(false);
   const dayDetailsMatchOriginalResult = useRef<MatchResultSnapshot>({ homeScore: null, awayScore: null });
-  const [dayDetailsMatchEditForm, setDayDetailsMatchEditForm] = useState<{ opponent: string; location: string; matchDate: string; matchTime: string; durationMinutes: string; isHome: boolean; customGroupId: string | null; homeScore: string; awayScore: string }>({ homeScore: "", awayScore: "", opponent: "", location: "", matchDate: "", matchTime: "", durationMinutes: "90", isHome: true, customGroupId: null });
+  const [dayDetailsMatchEditForm, setDayDetailsMatchEditForm] = useState<{ description: string; category: string; opponent: string; location: string; matchDate: string; matchTime: string; durationMinutes: string; isHome: boolean; customGroupId: string | null; homeScore: string; awayScore: string }>({ description: "", category: "", homeScore: "", awayScore: "", opponent: "", location: "", matchDate: "", matchTime: "", durationMinutes: "90", isHome: true, customGroupId: null });
   const [dayDetailsMatchSaving, setDayDetailsMatchSaving] = useState(false);
   const [dayDetailsMatchDeleteConfirm, setDayDetailsMatchDeleteConfirm] = useState(false);
   const [dayDetailsMatchError, setDayDetailsMatchError] = useState("");
@@ -4998,7 +5000,7 @@ function AdminMembersPageContent() {
         const res = await fetch(url, {
           method: existingId ? "PATCH" : "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ eventType: matchEventType, opponent: details.opponent, location: details.location, matchDate: date, matchTime: details.time, durationMinutes, isHome: details.isHome, teamGroups: matchTeamGroups, customGroupId: isCustomTrainingGroupMode ? (selectedCustomGroup?.id ?? (weekColorFilter ? (customTrainingGroups.find((g) => g.color === weekColorFilter)?.id ?? null) : null) ?? (customTrainingGroups.length === 1 ? customTrainingGroups[0].id : null)) : null }),
+          body: JSON.stringify({ description: details.description ?? "", category: details.category, eventType: matchEventType, opponent: details.opponent, location: details.location, matchDate: date, matchTime: details.time, durationMinutes, isHome: details.isHome, teamGroups: matchTeamGroups, customGroupId: isCustomTrainingGroupMode ? (selectedCustomGroup?.id ?? (weekColorFilter ? (customTrainingGroups.find((g) => g.color === weekColorFilter)?.id ?? null) : null) ?? (customTrainingGroups.length === 1 ? customTrainingGroups[0].id : null)) : null }),
         });
         const data = await res.json() as { error?: string; warning?: string };
         if (!res.ok) { setMatchEditorError(data.error ?? "Грешка при запазване."); return; }
@@ -6966,7 +6968,9 @@ function AdminMembersPageContent() {
                   {matchViewMatch.isHome ? "Домакин" : "Гост"}
                 </span>
               </div>
-              {matchViewMatch.durationMinutes > 0 && (
+              <div className="amp-match-view-row"><span className="amp-match-view-label">Характер на срещата</span><span className="amp-match-view-value">{matchCategoryLabel(matchViewMatch.category)}</span></div>
+                        {matchViewMatch.description && <div className="amp-match-view-row"><span className="amp-match-view-label">Описание</span><span className="amp-match-view-value" style={{ whiteSpace: "pre-wrap" }}>{matchViewMatch.description}</span></div>}
+                        {matchViewMatch.durationMinutes > 0 && (
                 <div className="amp-match-view-row">
                   <span className="amp-match-view-label">Продължителност</span>
                   <span className="amp-match-view-value">{matchViewMatch.durationMinutes} мин</span>
@@ -6981,6 +6985,7 @@ function AdminMembersPageContent() {
                 onClick={() => {
                   dayDetailsMatchOriginalResult.current = { homeScore: matchViewMatch.homeScore, awayScore: matchViewMatch.awayScore };
                   setDayDetailsMatchEditForm({
+                    description: matchViewMatch.description ?? "", category: matchViewMatch.category ?? "",
                     opponent: matchViewMatch.opponent,
                     location: matchViewMatch.location,
                     matchDate: matchViewMatch.matchDate,
@@ -8321,6 +8326,7 @@ function AdminMembersPageContent() {
                           return (
                             <div key={date} className="amp-match-day-section">
                               <span className="amp-lbl amp-match-day-label">{formatIsoDateForDisplay(date)}</span>
+                              <MatchExtraFields description={details.description ?? ""} category={details.category ?? ""} disabled={matchEditorSaving} onChange={(fields) => setMatchDetailsPerDay((prev) => ({ ...prev, [date]: { ...details, ...fields } }))} />
                               <label className="amp-edit-field">
                                 <span className="amp-lbl">Час</span>
                                 <div className="amp-edit-input" style={{ display: "flex", justifyContent: "center", alignItems: "center", padding: 0 }}>
@@ -8412,7 +8418,7 @@ function AdminMembersPageContent() {
                           onClick={() => void handleSaveMatch()}
                           disabled={matchEditorSaving || !matchSelectedDates.every((d) => {
                             const det = matchDetailsPerDay[d];
-                            return det?.location?.trim() && det?.time;
+                            return det?.category && det?.location?.trim() && det?.time;
                           })}
                         >
                           {matchEditorSaving ? "Запазване..." : matchSelectedDates.length > 1 ? `Запази ${matchSelectedDates.length} събития` : "Запази събитие"}
@@ -9642,6 +9648,7 @@ function AdminMembersPageContent() {
                           </select>
                         </div>
                       )}
+                      <MatchExtraFields description={dayDetailsMatchEditForm.description} category={dayDetailsMatchEditForm.category} disabled={dayDetailsMatchSaving} onChange={(fields) => setDayDetailsMatchEditForm((form) => ({ ...form, ...fields }))} />
                       {hasMatchFinished(dayDetailsActiveMatch) && <MatchResultFields isHome={dayDetailsMatchEditForm.isHome} opponent={dayDetailsMatchEditForm.opponent} homeScore={dayDetailsMatchEditForm.homeScore} awayScore={dayDetailsMatchEditForm.awayScore} onChange={(homeScore, awayScore) => setDayDetailsMatchEditForm((form) => ({ ...form, homeScore, awayScore }))} disabled={dayDetailsMatchSaving} />}
                       {dayDetailsMatchError && <p style={{ color: "#ff6b6b", fontSize: 13, margin: 0 }}>{dayDetailsMatchError}</p>}
                       <div className="amp-modal-actions amp-modal-actions--end">
@@ -9701,6 +9708,8 @@ function AdminMembersPageContent() {
                           <span className="amp-match-view-label">Място</span>
                           <span className="amp-match-view-value">{dayDetailsActiveMatch.location || "—"}</span>
                         </div>
+                        <div className="amp-match-view-row"><span className="amp-match-view-label">Характер на срещата</span><span className="amp-match-view-value">{matchCategoryLabel(dayDetailsActiveMatch.category)}</span></div>
+                        {dayDetailsActiveMatch.description && <div className="amp-match-view-row"><span className="amp-match-view-label">Описание</span><span className="amp-match-view-value" style={{ whiteSpace: "pre-wrap" }}>{dayDetailsActiveMatch.description}</span></div>}
                         {dayDetailsActiveMatch.durationMinutes > 0 && (
                           <div className="amp-match-view-row">
                             <span className="amp-match-view-label">Продължителност</span>
@@ -9723,6 +9732,7 @@ function AdminMembersPageContent() {
                           onClick={() => {
                             dayDetailsMatchOriginalResult.current = { homeScore: dayDetailsActiveMatch.homeScore, awayScore: dayDetailsActiveMatch.awayScore };
                             setDayDetailsMatchEditForm({
+                              description: dayDetailsActiveMatch.description ?? "", category: dayDetailsActiveMatch.category ?? "",
                               opponent: dayDetailsActiveMatch.opponent,
                               location: dayDetailsActiveMatch.location,
                               matchDate: dayDetailsActiveMatch.matchDate,
