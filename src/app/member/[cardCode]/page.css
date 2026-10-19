@@ -2230,6 +2230,16 @@
   overflow-x: hidden;
 }
 
+dialog.pm-modal {
+  color: inherit;
+  width: calc(100% - 32px);
+}
+
+dialog.pm-modal::backdrop {
+  background: rgba(0, 0, 0, 0.75);
+  backdrop-filter: blur(4px);
+}
+
 /* Top accent line */
 .pm-modal::before {
   content: '';

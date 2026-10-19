@@ -352,6 +352,7 @@ model TrainingSession {
   trainingFieldId         String?  @map("training_field_id") @db.Uuid
   trainingFieldPieceIds   String[] @default([]) @map("training_field_piece_ids") @db.Uuid
   status                  String   @default("scheduled")
+  removedFromSchedule     Boolean  @default(false) @map("removed_from_schedule")
   occurrenceKey           String   @default("") @map("occurrence_key")
   recurrenceId            String?  @map("recurrence_id") @db.Uuid
   recurrenceDate          DateTime? @map("recurrence_date") @db.Date
@@ -375,6 +376,7 @@ model TrainingSessionPlayer {
   teamGroup         Int?            @map("team_group")
   present           Boolean         @default(true)
   attendanceRecorded Boolean        @default(false) @map("attendance_recorded")
+  creditChargedAt   DateTime?        @map("credit_charged_at") @db.Timestamptz(6)
   reasonCode        String?         @map("reason_code")
   reasonText        String?         @map("reason_text")
   createdAt         DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)

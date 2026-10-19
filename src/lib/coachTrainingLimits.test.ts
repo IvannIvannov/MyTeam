@@ -2,9 +2,18 @@ import { describe, expect, it, vi } from "vitest";
 import { applyCoachTrainingLimits, parseCoachTrainingLimits } from "./coachTrainingLimits";
 const session = { id: "morning", date: "2026-10-12", trainingTime: "09:00", trainingDurationMinutes: 60, trainingFieldId: null, trainingFieldPieceIds: [], recurrenceId: null, status: "scheduled", note: "" };
 function writer(existing: unknown = null) {
-  return { limitedTrainingEvent: { findFirst: vi.fn().mockResolvedValue(existing), create: vi.fn(), delete: vi.fn(), update: vi.fn() }, limitedTrainingRegistration: { findMany: vi.fn().mockResolvedValue([{ playerId: "a" }, { playerId: "b" }, { playerId: "c" }]) }, trainingSessionPlayer: { updateMany: vi.fn() } };
+  return { club: { findUniqueOrThrow: vi.fn().mockResolvedValue({ paymentWorkflow: "calendar_month" }) }, limitedTrainingEvent: { findFirst: vi.fn().mockResolvedValue(existing), create: vi.fn(), delete: vi.fn(), update: vi.fn() }, limitedTrainingRegistration: { findMany: vi.fn().mockResolvedValue([{ playerId: "a" }, { playerId: "b" }, { playerId: "c" }]) }, trainingSessionPlayer: { updateMany: vi.fn() } };
 }
 describe("session-specific places in the restored wizard", () => {
+  it.each(["training_credits", "training_credits_30_days"])("preserves %s attendance when creating, changing, or removing limits", async (paymentWorkflow) => {
+    for (const [existing, maxSpots] of [[null, 2], [{ id: "event", maxSpots: 1 }, 2], [{ id: "event", maxSpots: 1 }, null]] as const) {
+      const tx = writer(existing);
+      tx.club.findUniqueOrThrow.mockResolvedValue({ paymentWorkflow });
+      await applyCoachTrainingLimits(tx as unknown as Parameters<typeof applyCoachTrainingLimits>[0], "club", "group", [session], [{ sessionId: "morning", maxSpots }]);
+      expect(tx.trainingSessionPlayer.updateMany).not.toHaveBeenCalled();
+      expect(tx.limitedTrainingEvent.create.mock.calls.length + tx.limitedTrainingEvent.update.mock.calls.length + tx.limitedTrainingEvent.delete.mock.calls.length).toBe(1);
+    }
+  });
   it("creating limited places changes attendance only for that training", async () => {
     const tx = writer();
     await applyCoachTrainingLimits(tx as unknown as Parameters<typeof applyCoachTrainingLimits>[0], "club", "group", [session, { ...session, id: "evening" }], [{ sessionId: "morning", maxSpots: 2 }]);
