@@ -89,6 +89,8 @@ describe("history result saves", () => {
     child = renderChild(a, childSlots);
     const pending = find(child, (element) => element.type === "form").props.onSubmit({ preventDefault: vi.fn() });
     expect(fetch).toHaveBeenCalledWith(expect.stringContaining("/matches/A"), expect.objectContaining({ method: "PATCH" }));
+    const requestBody = JSON.parse((fetch.mock.calls[0] as unknown as [string, RequestInit])[1].body as string);
+    expect(requestBody.expectedResult).toEqual({ homeScore: 2, awayScore: 1 });
     a.props.onClose();
     if (cleanup) cleanup();
     const closedChildState = [...childSlots];

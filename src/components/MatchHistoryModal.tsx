@@ -33,6 +33,7 @@ function MatchHistoryDetailsModal({ match, clubId, clubName, clubLogoUrl, onClos
   const titleId = useId();
   const closeButton = useRef<HTMLButtonElement>(null);
   const active = useRef(true);
+  const originalResult = useRef({ homeScore: match.homeScore, awayScore: match.awayScore });
   const [editingResult, setEditingResult] = useState(false);
   const [homeScore, setHomeScore] = useState(String(match.homeScore ?? ""));
   const [awayScore, setAwayScore] = useState(String(match.awayScore ?? ""));
@@ -44,7 +45,7 @@ function MatchHistoryDetailsModal({ match, clubId, clubName, clubLogoUrl, onClos
     setSaving(true);
     setError("");
     try {
-      const response = await fetch(`/api/admin/clubs/${encodeURIComponent(clubId)}/matches/${encodeURIComponent(match.id)}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(result) });
+      const response = await fetch(`/api/admin/clubs/${encodeURIComponent(clubId)}/matches/${encodeURIComponent(match.id)}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...result, expectedResult: originalResult.current }) });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Грешка при запазване на резултата.");
       onResultSaved(match.id, data.match.homeScore, data.match.awayScore);
@@ -88,7 +89,7 @@ function MatchHistoryDetailsModal({ match, clubId, clubName, clubLogoUrl, onClos
                 <button type="submit" className="match-scoreboard-action match-scoreboard-action--save" aria-label={saving ? "Запазване..." : "Запази резултата"} title="Запази резултата" disabled={saving}><Check size={18} /></button>
               </div>
             </form> : <strong className={`match-scoreboard-result${match.homeScore === null || match.awayScore === null ? " match-scoreboard-result--empty" : ""}`}>{formatMatchResult(match)}</strong>}
-            {hasMatchFinished(match) && !editingResult && <button type="button" className="amp-btn amp-btn--ghost match-scoreboard-edit" onClick={() => { setHomeScore(String(match.homeScore ?? "")); setAwayScore(String(match.awayScore ?? "")); setEditingResult(true); }}>{match.homeScore === null ? "Добави резултат" : "Редактирай резултата"}</button>}
+            {hasMatchFinished(match) && !editingResult && <button type="button" className="amp-btn amp-btn--ghost match-scoreboard-edit" onClick={() => { originalResult.current = { homeScore: match.homeScore, awayScore: match.awayScore }; setHomeScore(String(match.homeScore ?? "")); setAwayScore(String(match.awayScore ?? "")); setEditingResult(true); }}>{match.homeScore === null ? "Добави резултат" : "Редактирай резултата"}</button>}
           </div>
           <MatchTeamBadge name={match.isHome ? match.opponent || "Съперник" : clubName} logoUrl={match.isHome ? null : clubLogoUrl} side="Гост" />
         </section>

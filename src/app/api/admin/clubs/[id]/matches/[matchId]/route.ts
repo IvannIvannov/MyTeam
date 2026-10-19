@@ -113,6 +113,14 @@ export async function PATCH(
   if (hasResultUpdate) {
     const result = parseMatchResult(body);
     if ("error" in result) return NextResponse.json(result, { status: 400 });
+    if (!body.expectedResult || typeof body.expectedResult !== "object" || Array.isArray(body.expectedResult)) {
+      return NextResponse.json({ error: "Липсва първоначалният резултат. Презаредете данните и опитайте отново." }, { status: 400 });
+    }
+    const expected = parseMatchResult(body.expectedResult as Record<string, unknown>);
+    if ("error" in expected) return NextResponse.json({ error: "Невалиден първоначален резултат." }, { status: 400 });
+    if (existing.homeScore !== expected.homeScore || existing.awayScore !== expected.awayScore) {
+      return NextResponse.json({ error: "Резултатът е променен от друг потребител. Презаредете данните и опитайте отново." }, { status: 409 });
+    }
     if (result.homeScore !== null && (!hasMatchFinished(existing) || !hasMatchFinished(finalTiming))) {
       return NextResponse.json({ error: "Резултат може да се зададе само след края на мача." }, { status: 400 });
     }

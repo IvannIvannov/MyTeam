@@ -56,7 +56,7 @@ describe("concurrent result recording and rescheduling", () => {
       } finally { if (writer === firstWriter) firstWritten.release(); }
     });
     const responses = await Promise.all([
-      patch({ homeScore: 2, awayScore: 1 }),
+      patch({ homeScore: 2, awayScore: 1, expectedResult: { homeScore: null, awayScore: null } }),
       patch({ matchDate: "2099-01-01" }),
     ]);
     expect(responses.map((response) => response.status).sort()).toEqual([200, 409]);

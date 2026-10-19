@@ -2,6 +2,7 @@
 import { MATCH_EVENT_TYPES, matchEventTypeLabel, type MatchEventType } from "@/lib/matchEventType";
 import MatchOverlapWarning from "@/components/MatchOverlapWarning";
 import { MatchResultFields } from "@/components/MatchResultFields";
+import { buildMatchDetailsUpdate, type MatchResultSnapshot } from "@/lib/matchDetailsUpdate";
 import { hasMatchFinished } from "@/lib/matchResult";
 import MatchAttendancePanel from "@/components/MatchAttendancePanel";
 import MatchHistoryModal from "@/components/MatchHistoryModal";
@@ -833,6 +834,7 @@ function AdminMembersPageContent() {
   const [matchViewMatch, setMatchViewMatch] = useState<ClubMatch | null>(null);
   const [matchEditTarget, setMatchEditTarget] = useState<ClubMatch | null>(null);
   const [dayDetailsMatchEditOpen, setDayDetailsMatchEditOpen] = useState(false);
+  const dayDetailsMatchOriginalResult = useRef<MatchResultSnapshot>({ homeScore: null, awayScore: null });
   const [dayDetailsMatchEditForm, setDayDetailsMatchEditForm] = useState<{ opponent: string; location: string; matchDate: string; matchTime: string; durationMinutes: string; isHome: boolean; customGroupId: string | null; homeScore: string; awayScore: string }>({ homeScore: "", awayScore: "", opponent: "", location: "", matchDate: "", matchTime: "", durationMinutes: "90", isHome: true, customGroupId: null });
   const [dayDetailsMatchSaving, setDayDetailsMatchSaving] = useState(false);
   const [dayDetailsMatchDeleteConfirm, setDayDetailsMatchDeleteConfirm] = useState(false);
@@ -5027,16 +5029,7 @@ function AdminMembersPageContent() {
       const res = await fetch(`/api/admin/clubs/${encodeURIComponent(clubId)}/matches/${encodeURIComponent(dayDetailsActiveMatch.id)}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          opponent: dayDetailsMatchEditForm.opponent,
-          location: dayDetailsMatchEditForm.location,
-          matchDate: dayDetailsMatchEditForm.matchDate,
-          matchTime: dayDetailsMatchEditForm.matchTime,
-          durationMinutes: Number.parseInt(dayDetailsMatchEditForm.durationMinutes || "90", 10),
-          isHome: dayDetailsMatchEditForm.isHome,
-          customGroupId: dayDetailsMatchEditForm.customGroupId,
-          ...(hasMatchFinished(dayDetailsActiveMatch) ? { homeScore: dayDetailsMatchEditForm.homeScore.trim() === "" ? null : Number(dayDetailsMatchEditForm.homeScore), awayScore: dayDetailsMatchEditForm.awayScore.trim() === "" ? null : Number(dayDetailsMatchEditForm.awayScore) } : {}),
-        }),
+        body: JSON.stringify(buildMatchDetailsUpdate(dayDetailsMatchEditForm, dayDetailsMatchOriginalResult.current, hasMatchFinished(dayDetailsActiveMatch))),
       });
       const data = await res.json() as { error?: string };
       if (!res.ok) { setDayDetailsMatchError(data.error ?? "Грешка при запазване."); return; }
@@ -6986,6 +6979,7 @@ function AdminMembersPageContent() {
                 type="button"
                 className="amp-btn amp-btn--ghost"
                 onClick={() => {
+                  dayDetailsMatchOriginalResult.current = { homeScore: matchViewMatch.homeScore, awayScore: matchViewMatch.awayScore };
                   setDayDetailsMatchEditForm({
                     opponent: matchViewMatch.opponent,
                     location: matchViewMatch.location,
@@ -9727,6 +9721,7 @@ function AdminMembersPageContent() {
                           type="button"
                           className="amp-btn amp-btn--ghost"
                           onClick={() => {
+                            dayDetailsMatchOriginalResult.current = { homeScore: dayDetailsActiveMatch.homeScore, awayScore: dayDetailsActiveMatch.awayScore };
                             setDayDetailsMatchEditForm({
                               opponent: dayDetailsActiveMatch.opponent,
                               location: dayDetailsActiveMatch.location,
@@ -9735,8 +9730,8 @@ function AdminMembersPageContent() {
                               durationMinutes: String(dayDetailsActiveMatch.durationMinutes),
                               isHome: dayDetailsActiveMatch.isHome,
                               customGroupId: dayDetailsActiveMatch.customGroupId,
-                    homeScore: String(dayDetailsActiveMatch.homeScore ?? ""),
-                    awayScore: String(dayDetailsActiveMatch.awayScore ?? ""),
+                              homeScore: String(dayDetailsActiveMatch.homeScore ?? ""),
+                              awayScore: String(dayDetailsActiveMatch.awayScore ?? ""),
                             });
                             setDayDetailsMatchError("");
                             setDayDetailsMatchEditOpen(true);
