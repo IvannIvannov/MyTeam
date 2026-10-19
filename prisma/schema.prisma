@@ -352,6 +352,7 @@ model TrainingSession {
   trainingFieldId         String?  @map("training_field_id") @db.Uuid
   trainingFieldPieceIds   String[] @default([]) @map("training_field_piece_ids") @db.Uuid
   status                  String   @default("scheduled")
+  removedFromSchedule     Boolean  @default(false) @map("removed_from_schedule")
   occurrenceKey           String   @default("") @map("occurrence_key")
   recurrenceId            String?  @map("recurrence_id") @db.Uuid
   recurrenceDate          DateTime? @map("recurrence_date") @db.Date

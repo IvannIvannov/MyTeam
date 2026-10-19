@@ -7,8 +7,9 @@ describe("legacy training attendance defaults", () => {
   it.each(["calendar_month", "rolling_30_days", "training_credits", "training_credits_30_days"])("uses the %s default and preserves an existing roster on schedule edits", async (paymentWorkflow) => {
     const requiresCheckIn = paymentWorkflow === "training_credits" || paymentWorkflow === "training_credits_30_days";
     const tx = {
+      $queryRaw: vi.fn(),
       club: { findUniqueOrThrow: vi.fn().mockResolvedValue({ paymentWorkflow }) },
-      trainingSession: { deleteMany: vi.fn(), upsert: vi.fn().mockResolvedValue({ id: "session" }) },
+      trainingSession: { updateMany: vi.fn(), deleteMany: vi.fn(), upsert: vi.fn().mockResolvedValue({ id: "session" }) },
       trainingSessionPlayer: {
         findMany: vi.fn().mockResolvedValue([{ playerId: "existing" }]),
         deleteMany: vi.fn(), createMany: vi.fn(), updateMany: vi.fn(),

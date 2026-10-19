@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
-import { GET, POST } from "@/app/api/members/[cardCode]/training/route";
+import { GET, POST, DELETE } from "@/app/api/members/[cardCode]/training/route";
 import { GET as report } from "@/app/api/admin/clubs/[id]/training-attendance/report/route";
 import { GET as attendance } from "@/app/api/admin/clubs/[id]/training-attendance/route";
 
@@ -11,7 +11,7 @@ const mocks = vi.hoisted(() => ({
   player: { findMany: vi.fn() },
   trainingSession: { findMany: vi.fn(), findFirst: vi.fn() },
   trainingSessionPlayer: { upsert: vi.fn() },
-  trainingOptOut: { findMany: vi.fn(), upsert: vi.fn() },
+  trainingOptOut: { findMany: vi.fn(), upsert: vi.fn(), deleteMany: vi.fn() },
   trainingNote: { findMany: vi.fn() },
   limitedTrainingEvent: { findMany: vi.fn() },
   field: { findMany: vi.fn() },
@@ -35,6 +35,23 @@ const context = { params: Promise.resolve({ cardCode: "CARD" }) };
 const session = (id: string, time: string, present: boolean) => ({ id, status: "scheduled", createdAt: new Date(id === firstId ? "2026-10-01T00:00:00Z" : "2026-10-02T00:00:00Z"), scopeId: groupId, scopeType: "coachGroup", scopeKey, trainingDate: new Date(`${date}T00:00:00Z`), trainingTime: time, trainingDurationMinutes: 60, trainingFieldId: null, trainingFieldPieceIds: [], note: id === firstId ? "Morning note" : "Evening note", players: [{ playerId, playerName: "Player", teamGroup: null, player: { cards: [] }, present, reasonCode: present ? null : "sick", reasonText: null }] });
 
 describe("coach training API boundaries", () => {
+  it.each(["calendar_month", "rolling_30_days"])("preserves member opt-in for %s through session and legacy date requests", async (paymentWorkflow) => {
+    const card = await mocks.card.findFirst(); card.player.club.paymentWorkflow = paymentWorkflow;
+    expect((await DELETE(new NextRequest("http://localhost/training", { method: "DELETE", body: JSON.stringify({ trainingSessionId: secondId }) }), context)).status).toBe(200);
+    card.player.coachGroups = [];
+    expect((await DELETE(new NextRequest("http://localhost/training", { method: "DELETE", body: JSON.stringify({ trainingDate: date }) }), context)).status).toBe(200);
+    expect(mocks.trainingSessionPlayer.upsert).toHaveBeenCalledOnce();
+    expect(mocks.trainingOptOut.deleteMany).toHaveBeenCalledOnce();
+  });
+  it.each(["training_credits", "training_credits_30_days"])("rejects manual member opt-in for %s through both session and date requests", async (paymentWorkflow) => {
+    const card = await mocks.card.findFirst(); card.player.club.paymentWorkflow = paymentWorkflow;
+    for (const body of [{ trainingSessionId: secondId }, { trainingDate: date }]) {
+      const response = await DELETE(new NextRequest("http://localhost/training", { method: "DELETE", body: JSON.stringify(body) }), context);
+      expect(response.status).toBe(403);
+    }
+    expect(mocks.trainingSessionPlayer.upsert).not.toHaveBeenCalled();
+    expect(mocks.$transaction).not.toHaveBeenCalled();
+  });
   beforeEach(() => {
     vi.clearAllMocks(); vi.useFakeTimers(); vi.setSystemTime(new Date("2026-10-12T07:00:00Z"));
     const schedule = { trainingDates: [date], trainingDateTimes: { [date]: "09:00" }, trainingTime: "09:00", trainingDurationMinutes: 60, trainingWeekdays: [], trainingWindowDays: 30, trainingFieldId: null, trainingFieldPieceIds: [], trainingFieldSelections: null };

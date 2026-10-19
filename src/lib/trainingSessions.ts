@@ -12,8 +12,10 @@ type TrainingSessionScope =
 
 type TrainingFieldSelectionByDate = Record<string, { trainingFieldId: string | null; trainingFieldPieceIds: string[] }>;
 type TrainingSessionWriter = {
+  $queryRaw: typeof prisma.$queryRaw;
   club: Pick<typeof prisma.club, "findUniqueOrThrow">;
   trainingSession: {
+    updateMany(args: Prisma.TrainingSessionUpdateManyArgs): Promise<Prisma.BatchPayload>;
     deleteMany(args: Prisma.TrainingSessionDeleteManyArgs): Promise<Prisma.BatchPayload>;
     upsert(args: Prisma.TrainingSessionUpsertArgs): Promise<{ id: string }>;
   };
@@ -76,6 +78,7 @@ async function findCancelledSessionsForScope(input: {
       clubId: input.clubId,
       scopeKey: input.scopeKey,
       status: "cancelled",
+      removedFromSchedule: false,
       trainingDate: { in: input.trainingDates.map((date) => isoDateToUtcMidnight(date)) },
     },
     select: { trainingDate: true },
@@ -98,8 +101,7 @@ export async function syncFutureTrainingSessions(input: {
   const scopeData = getTrainingSessionScopeData(input.scope);
   const futureDates = Array.from(new Set(input.trainingDates.filter((date) => date >= input.todayIso))).sort((a, b) => a.localeCompare(b));
 
-  await input.tx.trainingSession.deleteMany({
-    where: {
+  await removeSessionsPreservingHistory(input.tx, {
       clubId: input.clubId,
       scopeKey: scopeData.scopeKey,
       trainingDate: {
@@ -114,7 +116,6 @@ export async function syncFutureTrainingSessions(input: {
             },
           }
         : {}),
-    },
   });
 
   if (futureDates.length === 0) return;
@@ -164,6 +165,7 @@ export async function syncFutureTrainingSessions(input: {
         trainingFieldId: fieldSelection?.trainingFieldId ?? input.trainingFieldId,
         trainingFieldPieceIds: fieldSelection?.trainingFieldPieceIds ?? input.trainingFieldPieceIds,
         status: "scheduled",
+        removedFromSchedule: false,
       },
       create: {
         clubId: input.clubId,
@@ -264,13 +266,20 @@ export async function deleteFutureTrainingSessionsForScope(input: {
   scope: TrainingSessionScope;
   todayIso: string;
 }) {
-  await input.tx.trainingSession.deleteMany({
-    where: {
+  await removeSessionsPreservingHistory(input.tx, {
       clubId: input.clubId,
       scopeKey: getTrainingSessionScopeKey(input.scope),
       trainingDate: {
         gte: isoDateToUtcMidnight(input.todayIso),
       },
-    },
   });
+}
+
+async function removeSessionsPreservingHistory(tx: Pick<TrainingSessionWriter, "trainingSession" | "$queryRaw">, where: Prisma.TrainingSessionWhereInput & { clubId: string; scopeKey: string; trainingDate: { gte: Date } }) {
+  // Match the check-in endpoint's session lock before deciding whether a
+  // session is untouched. Otherwise a concurrent check-in could be cascaded away.
+  await tx.$queryRaw`SELECT id FROM training_sessions WHERE club_id = ${where.clubId}::uuid AND scope_key = ${where.scopeKey} AND training_date >= ${where.trainingDate.gte} ORDER BY id FOR UPDATE`;
+  const history = { OR: [{ attendanceRecorded: true }, { creditChargedAt: { not: null } }] };
+  await tx.trainingSession.updateMany({ where: { ...where, players: { some: history } }, data: { status: "cancelled", removedFromSchedule: true } });
+  await tx.trainingSession.deleteMany({ where: { ...where, players: { none: history } } });
 }

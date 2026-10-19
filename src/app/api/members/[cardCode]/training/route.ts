@@ -1015,6 +1015,9 @@ export async function DELETE(
   if (!context) {
     return NextResponse.json({ error: "Member not found" }, { status: 404 });
   }
+  if (context.requiresCheckIn) {
+    return NextResponse.json({ error: "Присъствието се отчита от треньор чрез чекиране на тренировка." }, { status: 403 });
+  }
 
   const body = await request.json().catch(() => ({}));
   if (body.trainingSessionId || (context.hasCoachGroupSchedule && !context.customUpcomingDates.includes(String(body.trainingDate ?? "")))) return updateMemberSessionAttendance(context, body, false);

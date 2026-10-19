@@ -41,5 +41,7 @@ it("preserves existing attendance and defaults only newly created rows to absent
     await db.exec("INSERT INTO training_session_players (id) VALUES ('restored-default');");
     expect((await db.query("SELECT present FROM training_session_players WHERE id = 'restored-default'")).rows).toEqual([{ present: true }]);
     expect((await db.query("SELECT present FROM training_session_players WHERE id = 'new'")).rows).toEqual([{ present: false }]);
+    await db.exec(readFileSync("prisma/migrations/20261019150000_preserve_removed_training_history/migration.sql", "utf8"));
+    expect((await db.query("SELECT removed_from_schedule FROM training_sessions LIMIT 1")).rows).toEqual([{ removed_from_schedule: false }]);
   } finally { await db.close(); }
 }, 30000);

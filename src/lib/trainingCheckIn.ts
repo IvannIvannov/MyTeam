@@ -22,7 +22,10 @@ export async function chargeTrainingCheckIn(tx: Pick<typeof prisma, "player" | "
   const range = trainingCheckInRange();
   if (!row || row.trainingSession.clubId !== player.clubId || row.trainingSession.status !== "scheduled" || row.trainingSession.trainingDate < range.from || row.trainingSession.trainingDate > range.to) throw new TrainingCheckInError("Тренировката не е достъпна за чекиране.", 409);
   if (!["training_credits", "training_credits_30_days"].includes(player.club.paymentWorkflow)) throw new TrainingCheckInError("Чекирането изисква плащане с брой тренировки.");
-  if (row.present) return { player, training: row.trainingSession, charged: false, changed: false };
+  if (row.present) {
+    if (!row.creditChargedAt) throw new TrainingCheckInError("Присъствието е записано без чекиране. Не е отнет кредит.", 409);
+    return { player, training: row.trainingSession, charged: false, changed: false };
+  }
   if (player.club.paymentWorkflow === "training_credits_30_days" && !(getRollingThirtyDayPaymentWindow({ paidDates: player.paymentLogs.map((log) => log.paidFor) })?.remainingDays)) throw new TrainingCheckInError("30-дневният срок е изтекъл.");
   if (player.remainingTrainingCredits <= 0) throw new TrainingCheckInError("Няма оставащи тренировки.");
   const charged = !row.creditChargedAt;

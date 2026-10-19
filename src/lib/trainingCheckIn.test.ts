@@ -22,6 +22,11 @@ describe("training check-in", () => {
   });
   it("restores reversed attendance without a second charge", async () => { const { tx, run } = setup(true); await run(); expect(tx.player.update).not.toHaveBeenCalled(); expect(tx.trainingSessionPlayer.update).toHaveBeenCalledOnce(); });
   it("treats duplicate confirmation as a no-op", async () => { const { tx, row, run } = setup(true); row.present = true; await run(); expect(tx.player.update).not.toHaveBeenCalled(); expect(tx.trainingSessionPlayer.update).not.toHaveBeenCalled(); });
+  it("does not silently accept uncharged historical attendance as a check-in", async () => {
+    const { tx, row, run } = setup(); row.present = true;
+    await expect(run()).rejects.toThrow("Не е отнет кредит");
+    expect(tx.player.update).not.toHaveBeenCalled(); expect(tx.trainingSessionPlayer.update).not.toHaveBeenCalled();
+  });
   it("rejects cancelled and out-of-window trainings", async () => { const { row, run } = setup(); row.trainingSession.status = "cancelled"; await expect(run()).rejects.toThrow("не е достъпна"); row.trainingSession.status = "scheduled"; row.trainingSession.trainingDate = new Date("2026-10-15T00:00:00Z"); await expect(run()).rejects.toThrow("не е достъпна"); });
   it("rejects exhausted credits", async () => { const { player, tx, run } = setup(); player.remainingTrainingCredits = 0; await expect(run()).rejects.toThrow("Няма оставащи"); expect(tx.trainingSessionPlayer.update).not.toHaveBeenCalled(); });
   it("requires a currently active 30-day package even for a training before expiry", async () => {
