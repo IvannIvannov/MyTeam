@@ -1,3 +1,4 @@
+import { isMatchCategory } from "@/lib/matchCategory";
 import { isMatchEventType } from "@/lib/matchEventType";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
@@ -44,7 +45,7 @@ export async function PATCH(
     select: {
       id: true,
       customGroupId: true,
-      eventType: true, opponent: true,
+      description: true, category: true, eventType: true, opponent: true,
       location: true,
       matchDate: true,
       matchTime: true,
@@ -59,6 +60,15 @@ export async function PATCH(
 
   const body = await request.json().catch(() => ({})) as Record<string, unknown>;
   const update: Record<string, unknown> = {};
+
+  if (Object.hasOwn(body, "category")) {
+    if (!isMatchCategory(body.category)) return NextResponse.json({ error: "Изберете Контрола или Официален." }, { status: 400 });
+    update.category = body.category;
+  }
+  if (Object.hasOwn(body, "description")) {
+    if (typeof body.description !== "string" || body.description.trim().length > 2000) return NextResponse.json({ error: "Невалидно описание (максимум 2000 знака)." }, { status: 400 });
+    update.description = body.description.trim();
+  }
 
   if (Object.hasOwn(body, "eventType")) {
     if (!isMatchEventType(body.eventType)) return NextResponse.json({ error: "Невалиден вид събитие." }, { status: 400 });
@@ -148,7 +158,7 @@ export async function PATCH(
       awayScore: existing.awayScore,
     },
     data: update,
-    select: { id: true, customGroupId: true, eventType: true, opponent: true, location: true, matchDate: true, matchTime: true, durationMinutes: true, isHome: true, teamGroups: true, homeScore: true, awayScore: true },
+    select: { id: true, customGroupId: true, description: true, category: true, eventType: true, opponent: true, location: true, matchDate: true, matchTime: true, durationMinutes: true, isHome: true, teamGroups: true, homeScore: true, awayScore: true },
   }).catch((error: unknown) => {
     if (typeof error === "object" && error !== null && "code" in error && error.code === "P2025") return null;
     throw error;

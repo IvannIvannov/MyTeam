@@ -1,3 +1,4 @@
+import { isMatchCategory } from "@/lib/matchCategory";
 import { isMatchEventType } from "@/lib/matchEventType";
 import { matchPlayerWhere } from "@/lib/matchAttendanceRules";
 import { NextRequest, NextResponse } from "next/server";
@@ -53,7 +54,7 @@ export async function GET(
     select: {
       id: true,
       customGroupId: true,
-      eventType: true, opponent: true,
+      description: true, category: true, eventType: true, opponent: true,
       location: true,
       matchDate: true,
       matchTime: true,
@@ -81,6 +82,11 @@ export async function POST(
   if (!club) return NextResponse.json({ error: "Club not found" }, { status: 404 });
 
   const body = await request.json().catch(() => ({})) as Record<string, unknown>;
+
+  if (!isMatchCategory(body.category)) return NextResponse.json({ error: "Изберете Контрола или Официален." }, { status: 400 });
+  if (typeof body.description !== "undefined" && typeof body.description !== "string") return NextResponse.json({ error: "Невалидно описание." }, { status: 400 });
+  const description = String(body.description ?? "").trim();
+  if (description.length > 2000) return NextResponse.json({ error: "Описанието е твърде дълго (максимум 2000 знака)." }, { status: 400 });
 
   const eventType = body.eventType === undefined ? "match" : body.eventType;
   if (!isMatchEventType(eventType)) return NextResponse.json({ error: "Невалиден вид събитие." }, { status: 400 });
@@ -113,8 +119,8 @@ export async function POST(
 
   const roster = await prisma.player.findMany({ where: matchPlayerWhere({ clubId: id, customGroupId, teamGroups }), select: { id: true } });
   const match = await prisma.clubMatch.create({
-    data: { clubId: id, customGroupId, eventType, opponent, location, matchDate, matchTime, durationMinutes, isHome, teamGroups, attendanceEnabled: true, players: { create: roster.map((player) => ({ playerId: player.id })) } },
-    select: { id: true, customGroupId: true, eventType: true, opponent: true, location: true, matchDate: true, matchTime: true, durationMinutes: true, isHome: true, teamGroups: true },
+    data: { description, category: body.category, clubId: id, customGroupId, eventType, opponent, location, matchDate, matchTime, durationMinutes, isHome, teamGroups, attendanceEnabled: true, players: { create: roster.map((player) => ({ playerId: player.id })) } },
+    select: { id: true, customGroupId: true, description: true, category: true, eventType: true, opponent: true, location: true, matchDate: true, matchTime: true, durationMinutes: true, isHome: true, teamGroups: true },
   });
 
   let notifications = null;

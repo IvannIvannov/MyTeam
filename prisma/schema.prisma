@@ -391,6 +391,8 @@ model TrainingSessionPlayer {
 }
 
 model ClubMatch {
+  description String @default("")
+  category String?
   eventType String @default("match") @map("event_type")
   homeScore Int? @map("home_score")
   awayScore Int? @map("away_score")

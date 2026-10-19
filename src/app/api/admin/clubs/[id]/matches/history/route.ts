@@ -52,13 +52,13 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     const [total, matches, customGroups, recentForm] = await Promise.all([
       prisma.clubMatch.count({ where }),
       prisma.clubMatch.findMany({ where, orderBy: [{ matchDate: "desc" }, { matchTime: "desc" }, { id: "desc" }], skip: (page - 1) * PAGE_SIZE, take: PAGE_SIZE,
-        select: { id: true, eventType: true, opponent: true, location: true, matchDate: true, matchTime: true, durationMinutes: true, isHome: true, teamGroups: true, attendanceEnabled: true, homeScore: true, awayScore: true, customGroup: { select: { name: true } } },
+        select: { id: true, description: true, category: true, eventType: true, opponent: true, location: true, matchDate: true, matchTime: true, durationMinutes: true, isHome: true, teamGroups: true, attendanceEnabled: true, homeScore: true, awayScore: true, customGroup: { select: { name: true } } },
       }),
       prisma.clubCustomTrainingGroup.findMany({ where: { clubId, ...(coachGroupId ? { coachGroupId } : {}) }, select: { id: true, name: true }, orderBy: { name: "asc" } }),
       prisma.clubMatch.findMany({
         where: { ...where, homeScore: { not: null }, awayScore: { not: null } },
         orderBy: [{ matchDate: "desc" }, { matchTime: "desc" }, { id: "desc" }], take: 5,
-        select: { id: true, eventType: true, opponent: true, matchDate: true, homeScore: true, awayScore: true, isHome: true },
+        select: { id: true, description: true, category: true, eventType: true, opponent: true, matchDate: true, homeScore: true, awayScore: true, isHome: true },
       }),
     ]);
     return NextResponse.json({ matches, total, page, pageSize: PAGE_SIZE, customGroups, recentForm });

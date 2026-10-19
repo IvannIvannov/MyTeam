@@ -1,10 +1,13 @@
 "use client";
+import MemberMatchExtraDetails from "@/components/MemberMatchExtraDetails";
 
 import { X as XIcon } from "lucide-react";
 import { matchEventTypeLabel } from "@/lib/matchEventType";
 import MatchAttendanceControl from "@/components/MatchAttendanceControl";
 
 export interface MemberMatchDetails {
+  description?: string;
+  category?: string | null;
   eventType?: string;
   attendanceEnabled: boolean;
   present: boolean;
@@ -61,6 +64,7 @@ export default function MemberMatchDetailsModal({ match, matches, cardCode, onSe
           })}
         </p>
         <div className="match-details-body">
+          <MemberMatchExtraDetails category={match.category} description={match.description} />
           <div className="match-details-row">
             <span className="match-details-label">Противник</span>
             <span className="match-details-value">{match.opponent}</span>
