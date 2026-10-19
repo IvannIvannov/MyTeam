@@ -389,6 +389,8 @@ model TrainingSessionPlayer {
 }
 
 model ClubMatch {
+  homeScore Int? @map("home_score")
+  awayScore Int? @map("away_score")
   attendanceEnabled Boolean @default(false) @map("attendance_enabled")
   players ClubMatchPlayer[]
   id              String                   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid

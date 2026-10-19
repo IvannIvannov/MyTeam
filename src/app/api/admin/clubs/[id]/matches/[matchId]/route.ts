@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db";
 import { verifyAdminToken } from "@/lib/adminAuth";
 import { isIsoDate, isValidTrainingTime } from "@/lib/training";
 import { checkAwayMatchTrainingConflict } from "@/lib/trainingFieldConflicts";
+import { hasMatchFinished, parseMatchResult } from "@/lib/matchResult";
 import {
   hasMatchScheduleChanged,
   sendMatchScheduleNotifications,
@@ -49,6 +50,8 @@ export async function PATCH(
       durationMinutes: true,
       isHome: true,
       teamGroups: true,
+      homeScore: true,
+      awayScore: true,
     },
   });
   if (!existing) return NextResponse.json({ error: "Not found" }, { status: 404 });
@@ -100,14 +103,30 @@ export async function PATCH(
   const finalTeamGroups = (update.teamGroups as number[] | undefined) ?? existing.teamGroups;
   const finalCustomGroupId = (update.customGroupId as string | null | undefined) ?? existing.customGroupId;
   const finalIsHome = (update.isHome as boolean | undefined) ?? existing.isHome;
-  const conflict = await checkAwayMatchTrainingConflict({ clubId: id, matchDate: finalDate, matchTime: finalTime, durationMinutes: finalDuration, teamGroups: finalTeamGroups, customGroupId: finalCustomGroupId, isHome: finalIsHome, excludeMatchId: matchId });
-  if (conflict.blocking) return NextResponse.json({ error: conflict.blocking }, { status: 400 });
-  matchConflictWarning = conflict.warning;
+  const finalTiming = { matchDate: finalDate, matchTime: finalTime, durationMinutes: finalDuration };
+  const hasResultUpdate = Object.hasOwn(body, "homeScore") || Object.hasOwn(body, "awayScore");
+  if (hasResultUpdate) {
+    const result = parseMatchResult(body);
+    if ("error" in result) return NextResponse.json(result, { status: 400 });
+    if (result.homeScore !== null && (!hasMatchFinished(existing) || !hasMatchFinished(finalTiming))) {
+      return NextResponse.json({ error: "Резултат може да се зададе само след края на мача." }, { status: 400 });
+    }
+    Object.assign(update, result);
+  }
+  if (existing.homeScore !== null && !hasMatchFinished(finalTiming) && !(hasResultUpdate && update.homeScore === null)) {
+    return NextResponse.json({ error: "Изчистете резултата, преди да преместите мача в бъдещето." }, { status: 400 });
+  }
+  const scheduleChanged = finalDate !== existing.matchDate || finalTime !== existing.matchTime || finalDuration !== existing.durationMinutes || finalIsHome !== existing.isHome || finalCustomGroupId !== existing.customGroupId || JSON.stringify(finalTeamGroups) !== JSON.stringify(existing.teamGroups);
+  if (scheduleChanged) {
+    const conflict = await checkAwayMatchTrainingConflict({ clubId: id, matchDate: finalDate, matchTime: finalTime, durationMinutes: finalDuration, teamGroups: finalTeamGroups, customGroupId: finalCustomGroupId, isHome: finalIsHome, excludeMatchId: matchId });
+    if (conflict.blocking) return NextResponse.json({ error: conflict.blocking }, { status: 400 });
+    matchConflictWarning = conflict.warning;
+  }
 
   const match = await prisma.clubMatch.update({
     where: { id: matchId },
     data: update,
-    select: { id: true, customGroupId: true, opponent: true, location: true, matchDate: true, matchTime: true, durationMinutes: true, isHome: true, teamGroups: true },
+    select: { id: true, customGroupId: true, opponent: true, location: true, matchDate: true, matchTime: true, durationMinutes: true, isHome: true, teamGroups: true, homeScore: true, awayScore: true },
   });
 
   let notifications = null;

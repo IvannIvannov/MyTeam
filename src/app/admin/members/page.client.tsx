@@ -1,5 +1,8 @@
 "use client";
+import { MatchResultFields } from "@/components/MatchResultFields";
+import { hasMatchFinished } from "@/lib/matchResult";
 import MatchAttendancePanel from "@/components/MatchAttendancePanel";
+import MatchHistoryModal from "@/components/MatchHistoryModal";
 import GroupAssignmentFeeNotice from "@/app/admin/members/_components/GroupAssignmentFeeNotice";
 import { previewGroupAssignmentFees, rebaseGroupAssignmentSelection, type GroupFeeSettings } from "@/lib/groupAssignmentFees";
 import MonthlyFeeModal from "@/app/admin/members/_components/MonthlyFeeModal";
@@ -717,6 +720,7 @@ function AdminMembersPageContent() {
   const [clubLogoUrl, setClubLogoUrl] = useState<string | null>(null);
   const [reportsOpen, setReportsOpen] = useState(false);
   const [attendanceDashboardOpen, setAttendanceDashboardOpen] = useState(false);
+  const [matchHistoryOpen, setMatchHistoryOpen] = useState(false);
   const [editingClub, setEditingClub] = useState<ClubOption | null>(null);
   const [clubEditForm, setClubEditForm] = useState({
     name: "",
@@ -826,7 +830,7 @@ function AdminMembersPageContent() {
   const [matchViewMatch, setMatchViewMatch] = useState<ClubMatch | null>(null);
   const [matchEditTarget, setMatchEditTarget] = useState<ClubMatch | null>(null);
   const [dayDetailsMatchEditOpen, setDayDetailsMatchEditOpen] = useState(false);
-  const [dayDetailsMatchEditForm, setDayDetailsMatchEditForm] = useState<{ opponent: string; location: string; matchDate: string; matchTime: string; durationMinutes: string; isHome: boolean; customGroupId: string | null }>({ opponent: "", location: "", matchDate: "", matchTime: "", durationMinutes: "90", isHome: true, customGroupId: null });
+  const [dayDetailsMatchEditForm, setDayDetailsMatchEditForm] = useState<{ opponent: string; location: string; matchDate: string; matchTime: string; durationMinutes: string; isHome: boolean; customGroupId: string | null; homeScore: string; awayScore: string }>({ homeScore: "", awayScore: "", opponent: "", location: "", matchDate: "", matchTime: "", durationMinutes: "90", isHome: true, customGroupId: null });
   const [dayDetailsMatchSaving, setDayDetailsMatchSaving] = useState(false);
   const [dayDetailsMatchDeleteConfirm, setDayDetailsMatchDeleteConfirm] = useState(false);
   const [dayDetailsMatchError, setDayDetailsMatchError] = useState("");
@@ -5028,6 +5032,7 @@ function AdminMembersPageContent() {
           durationMinutes: Number.parseInt(dayDetailsMatchEditForm.durationMinutes || "90", 10),
           isHome: dayDetailsMatchEditForm.isHome,
           customGroupId: dayDetailsMatchEditForm.customGroupId,
+          ...(hasMatchFinished(dayDetailsActiveMatch) ? { homeScore: dayDetailsMatchEditForm.homeScore.trim() === "" ? null : Number(dayDetailsMatchEditForm.homeScore), awayScore: dayDetailsMatchEditForm.awayScore.trim() === "" ? null : Number(dayDetailsMatchEditForm.awayScore) } : {}),
         }),
       });
       const data = await res.json() as { error?: string };
@@ -5719,6 +5724,10 @@ function AdminMembersPageContent() {
               >
                 <ClipboardListIcon />
                 <span>Присъствия</span>
+              </button>
+              <button className="amp-download-links-btn amp-scheduler-settings-btn amp-btn--compact" onClick={() => setMatchHistoryOpen(true)} type="button">
+                <CalendarIcon />
+                <span>История на мачовете</span>
               </button>
               {isAdmin && (
                 <button
@@ -6914,6 +6923,7 @@ function AdminMembersPageContent() {
           coachGroupName={currentCoachGroupName}
         />
       )}
+      {matchHistoryOpen && clubId && <MatchHistoryModal clubId={clubId} clubName={clubName} clubLogoUrl={clubLogoUrl} coachGroupId={coachGroupId || undefined} coachGroupName={coachGroups.find((group) => group.id === coachGroupId)?.name} onClose={() => setMatchHistoryOpen(false)} />}
       {attendanceDashboardOpen && clubId && (
         <AttendanceDashboard
           onClose={() => setAttendanceDashboardOpen(false)}
@@ -6981,6 +6991,8 @@ function AdminMembersPageContent() {
                     durationMinutes: String(matchViewMatch.durationMinutes),
                     isHome: matchViewMatch.isHome,
                     customGroupId: matchViewMatch.customGroupId,
+                    homeScore: String(matchViewMatch.homeScore ?? ""),
+                    awayScore: String(matchViewMatch.awayScore ?? ""),
                   });
                   setDayDetailsMatchError("");
                   setDayDetailsMatchDeleteConfirm(false);
@@ -9620,6 +9632,7 @@ function AdminMembersPageContent() {
                           </select>
                         </div>
                       )}
+                      {hasMatchFinished(dayDetailsActiveMatch) && <MatchResultFields isHome={dayDetailsMatchEditForm.isHome} opponent={dayDetailsMatchEditForm.opponent} homeScore={dayDetailsMatchEditForm.homeScore} awayScore={dayDetailsMatchEditForm.awayScore} onChange={(homeScore, awayScore) => setDayDetailsMatchEditForm((form) => ({ ...form, homeScore, awayScore }))} disabled={dayDetailsMatchSaving} />}
                       {dayDetailsMatchError && <p style={{ color: "#ff6b6b", fontSize: 13, margin: 0 }}>{dayDetailsMatchError}</p>}
                       <div className="amp-modal-actions amp-modal-actions--end">
                         <button type="button" className="amp-btn amp-btn--ghost" onClick={() => {
@@ -9706,6 +9719,8 @@ function AdminMembersPageContent() {
                               durationMinutes: String(dayDetailsActiveMatch.durationMinutes),
                               isHome: dayDetailsActiveMatch.isHome,
                               customGroupId: dayDetailsActiveMatch.customGroupId,
+                    homeScore: String(dayDetailsActiveMatch.homeScore ?? ""),
+                    awayScore: String(dayDetailsActiveMatch.awayScore ?? ""),
                             });
                             setDayDetailsMatchError("");
                             setDayDetailsMatchEditOpen(true);

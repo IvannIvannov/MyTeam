@@ -59,6 +59,8 @@ export async function GET(
       durationMinutes: true,
       isHome: true,
       teamGroups: true,
+      homeScore: true,
+      awayScore: true,
     },
   });
 

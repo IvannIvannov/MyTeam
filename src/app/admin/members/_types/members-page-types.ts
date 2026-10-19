@@ -202,6 +202,8 @@ interface TrainingWeekSessionItem {
 }
 
 interface ClubMatch {
+  homeScore: number | null;
+  awayScore: number | null;
   id: string;
   customGroupId: string | null;
   opponent: string;
