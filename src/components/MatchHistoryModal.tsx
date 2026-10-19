@@ -29,9 +29,10 @@ function MatchTeamBadge({ name, logoUrl, side }: { name: string; logoUrl?: strin
   </div>;
 }
 
-function MatchHistoryDetailsModal({ match, clubId, clubName, clubLogoUrl, onClose, onResultSaved }: { match: HistoryMatch; clubId: string; clubName: string; clubLogoUrl?: string | null; onClose: () => void; onResultSaved: (homeScore: number | null, awayScore: number | null) => void }) {
+function MatchHistoryDetailsModal({ match, clubId, clubName, clubLogoUrl, onClose, onResultSaved }: { match: HistoryMatch; clubId: string; clubName: string; clubLogoUrl?: string | null; onClose: () => void; onResultSaved: (matchId: string, homeScore: number | null, awayScore: number | null) => void }) {
   const titleId = useId();
   const closeButton = useRef<HTMLButtonElement>(null);
+  const active = useRef(true);
   const [editingResult, setEditingResult] = useState(false);
   const [homeScore, setHomeScore] = useState(String(match.homeScore ?? ""));
   const [awayScore, setAwayScore] = useState(String(match.awayScore ?? ""));
@@ -46,15 +47,16 @@ function MatchHistoryDetailsModal({ match, clubId, clubName, clubLogoUrl, onClos
       const response = await fetch(`/api/admin/clubs/${encodeURIComponent(clubId)}/matches/${encodeURIComponent(match.id)}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(result) });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Грешка при запазване на резултата.");
-      onResultSaved(data.match.homeScore, data.match.awayScore);
-      setEditingResult(false);
-    } catch (error) { setError(error instanceof Error ? error.message : "Грешка при запазване."); }
-    finally { setSaving(false); }
+      onResultSaved(match.id, data.match.homeScore, data.match.awayScore);
+      if (active.current) setEditingResult(false);
+    } catch (error) { if (active.current) setError(error instanceof Error ? error.message : "Грешка при запазване."); }
+    finally { if (active.current) setSaving(false); }
   }
   useEffect(() => {
+    active.current = true;
     const previousFocus = document.activeElement;
     closeButton.current?.focus();
-    return () => { if (previousFocus instanceof HTMLElement) previousFocus.focus(); };
+    return () => { active.current = false; if (previousFocus instanceof HTMLElement) previousFocus.focus(); };
   }, []);
   const details = [
     ["Вид събитие", matchEventTypeLabel(match.eventType)],
@@ -162,9 +164,9 @@ export default function MatchHistoryModal({ clubId, clubName = "Нашият о�
       <div className="amp-modal-body">
       {coachGroupName && <p className="amp-lbl">Треньорска група: {coachGroupName}</p>}
       <section className="match-history-form" aria-label="Форма от последните 5 мача" aria-busy={loading}>
-        <div className="match-history-form-heading"><span className="amp-lbl">Последни 5 мача</span><span className="match-history-meta">Най-новият е вляво</span></div>
+        <div className="match-history-form-heading"><span className="amp-lbl">Последни 5 мача</span><span className="match-history-meta">Най-новият е вдясно</span></div>
         <div className="match-history-form-squares">{Array.from({ length: 5 }, (_, index) => {
-          const match = data?.recentForm?.[index];
+          const match = data?.recentForm?.[4 - index];
           const outcome = match ? getMatchOutcome(match) : "unset";
           const label = outcome === "win" ? "Победа" : outcome === "loss" ? "Загуба" : outcome === "draw" ? "Равенство" : "Няма резултат";
           const description = match ? `${label} · ${match.matchDate} · срещу ${match.opponent || "—"} · ${formatMatchResult(match)} (домакин : гост)` : "Няма резултат";
@@ -200,9 +202,9 @@ export default function MatchHistoryModal({ clubId, clubName = "Нашият о�
       </div>
     </div>
   </div>
-    {selectedMatch && createPortal(<MatchHistoryDetailsModal match={selectedMatch} clubId={clubId} clubName={clubName} clubLogoUrl={clubLogoUrl} onClose={() => setSelectedMatch(null)} onResultSaved={(homeScore, awayScore) => {
-      setSelectedMatch((current) => current ? { ...current, homeScore, awayScore } : null);
-      setData((current) => current ? { ...current, matches: current.matches.map((match) => match.id === selectedMatch.id ? { ...match, homeScore, awayScore } : match) } : null);
+    {selectedMatch && createPortal(<MatchHistoryDetailsModal key={selectedMatch.id} match={selectedMatch} clubId={clubId} clubName={clubName} clubLogoUrl={clubLogoUrl} onClose={() => setSelectedMatch(null)} onResultSaved={(matchId, homeScore, awayScore) => {
+      setSelectedMatch((current) => current?.id === matchId ? { ...current, homeScore, awayScore } : current);
+      setData((current) => current ? { ...current, matches: current.matches.map((match) => match.id === matchId ? { ...match, homeScore, awayScore } : match) } : null);
       setRefreshKey((current) => current + 1);
     }} />, document.body)}
   </>;
