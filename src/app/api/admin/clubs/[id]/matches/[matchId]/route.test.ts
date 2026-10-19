@@ -21,6 +21,16 @@ describe("recording game results", () => {
   });
   afterEach(() => vi.useRealTimers());
   it("requires authentication", async () => { expect((await update({ homeScore: 1, awayScore: 0 }, false)).status).toBe(401); expect(mocks.find).not.toHaveBeenCalled(); });
+  it("returns an actionable conflict response for a stale write", async () => {
+    mocks.update.mockRejectedValue(Object.assign(new Error("Changed"), { code: "P2025" }));
+    const response = await update({ homeScore: 2, awayScore: 1 });
+    expect(response.status).toBe(409);
+    expect((await response.json()).error).toContain("Презаредете");
+  });
+  it("does not hide unrelated database failures as edit conflicts", async () => {
+    mocks.update.mockRejectedValue(new Error("Database unavailable"));
+    await expect(update({ homeScore: 2, awayScore: 1 })).rejects.toThrow("Database unavailable");
+  });
   it("saves an overlapping game and returns a warning instead of rejecting it", async () => {
     mocks.conflict.mockResolvedValue(["Застъпване с домакински мач"]);
     const response = await update({ matchTime: "13:15" });

@@ -128,10 +128,26 @@ export async function PATCH(
   }
 
   const match = await prisma.clubMatch.update({
-    where: { id: matchId },
+    // Keep result and schedule validation valid through the write. PostgreSQL
+    // rechecks this predicate after a concurrent writer releases the row lock.
+    where: {
+      id: matchId,
+      clubId: id,
+      matchDate: existing.matchDate,
+      matchTime: existing.matchTime,
+      durationMinutes: existing.durationMinutes,
+      homeScore: existing.homeScore,
+      awayScore: existing.awayScore,
+    },
     data: update,
     select: { id: true, customGroupId: true, eventType: true, opponent: true, location: true, matchDate: true, matchTime: true, durationMinutes: true, isHome: true, teamGroups: true, homeScore: true, awayScore: true },
+  }).catch((error: unknown) => {
+    if (typeof error === "object" && error !== null && "code" in error && error.code === "P2025") return null;
+    throw error;
   });
+  if (!match) {
+    return NextResponse.json({ error: "Мачът е променен от друг потребител. Презаредете данните и опитайте отново." }, { status: 409 });
+  }
 
   let notifications = null;
   if (hasMatchScheduleChanged(existing, match)) {
