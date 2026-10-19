@@ -51,6 +51,7 @@ describe("multiple coach trainings", () => {
 
   function writer(existing: unknown[]) {
     return {
+      $queryRaw: vi.fn(),
       club: { findUniqueOrThrow: vi.fn().mockResolvedValue({ paymentWorkflow: "training_credits" }) },
       trainingSession: { findMany: vi.fn().mockResolvedValue(existing), create: vi.fn(), update: vi.fn(), delete: vi.fn() },
       trainingSessionPlayer: { createMany: vi.fn() },
@@ -64,6 +65,13 @@ describe("multiple coach trainings", () => {
     expect(tx.trainingSession.update).toHaveBeenCalledWith(expect.objectContaining({ where: { id: firstId } }));
     expect(tx.trainingSessionPlayer.createMany.mock.calls[0][0].data).toEqual([]);
     expect(tx.trainingSessionPlayer.createMany.mock.calls[1][0].data).toEqual([expect.objectContaining({ trainingSessionId: secondId, playerId: "player", present: false })]);
+    expect(tx.trainingSession.delete).not.toHaveBeenCalled();
+    expect(tx.$queryRaw.mock.invocationCallOrder[0]).toBeLessThan(tx.trainingSession.findMany.mock.invocationCallOrder[0]);
+  });
+  it("preserves a charge timestamp even if attendanceRecorded is false", async () => {
+    const tx = writer([{ id: firstId, trainingDate: new Date("2026-10-12T00:00:00Z"), note: null, status: "scheduled", players: [{ present: false, attendanceRecorded: false, creditChargedAt: new Date() }] }]);
+    await writeCoachTrainings(tx as unknown as Parameters<typeof writeCoachTrainings>[0], "club", groupId, [], []);
+    expect(tx.trainingSession.update).toHaveBeenCalledWith({ where: { id: firstId }, data: { status: "cancelled" } });
     expect(tx.trainingSession.delete).not.toHaveBeenCalled();
   });
   it.each(["calendar_month", "rolling_30_days", "training_credits", "training_credits_30_days"])("uses the right default for %s", async (paymentWorkflow) => {

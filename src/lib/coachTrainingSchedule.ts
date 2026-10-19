@@ -75,11 +75,14 @@ export async function readCoachTrainings(clubId: string, groupId: string) {
 }
 
 // Session IDs, rather than dates or start times, survive all edits.
-export async function writeCoachTrainings(tx: Pick<typeof prisma, "trainingSession" | "trainingSessionPlayer" | "coachGroup" | "player" | "club">, clubId: string, groupId: string, trainings: CoachTraining[], recurrences: CoachTrainingRecurrence[]) {
+export async function writeCoachTrainings(tx: Pick<typeof prisma, "$queryRaw" | "trainingSession" | "trainingSessionPlayer" | "coachGroup" | "player" | "club">, clubId: string, groupId: string, trainings: CoachTraining[], recurrences: CoachTrainingRecurrence[]) {
   const club = await tx.club.findUniqueOrThrow({ where: { id: clubId }, select: { paymentWorkflow: true } });
   const requiresCheckIn = trainingRequiresCheckIn(club.paymentWorkflow);
   const today = getTodayIsoDateInTimeZone("Europe/Sofia");
   const scopeKey = `coach_group:${groupId}`;
+  // Check-in locks the same session before changing attendance. Take this lock
+  // before reading the roster so removal cannot delete a newly committed charge.
+  await tx.$queryRaw`SELECT id FROM training_sessions WHERE club_id = ${clubId}::uuid AND scope_key = ${scopeKey} ORDER BY id FOR UPDATE`;
   const existing = await tx.trainingSession.findMany({ where: { clubId, scopeKey }, include: { players: true } });
   const existingById = new Map(existing.map((s) => [s.id, s]));
   const players = await tx.player.findMany({ where: { clubId, isActive: true, coachGroups: { some: { id: groupId } } }, select: { id: true, fullName: true, teamGroup: true } });
@@ -95,7 +98,7 @@ export async function writeCoachTrainings(tx: Pick<typeof prisma, "trainingSessi
   const retained = new Set(trainings.map((t) => t.id));
   for (const removed of existing) {
     if (utcDateToIsoDate(removed.trainingDate) < today || retained.has(removed.id)) continue;
-    const hasActivity = Boolean(removed.note) || removed.players.some((p) => p.attendanceRecorded || (!requiresCheckIn && !p.present) || p.reasonCode || p.reasonText);
+    const hasActivity = Boolean(removed.note) || removed.players.some((p) => p.attendanceRecorded || p.creditChargedAt || (!requiresCheckIn && !p.present) || p.reasonCode || p.reasonText);
     if (hasActivity || removed.status === "cancelled") await tx.trainingSession.update({ where: { id: removed.id }, data: { status: "cancelled" } });
     else await tx.trainingSession.delete({ where: { id: removed.id } });
   }
