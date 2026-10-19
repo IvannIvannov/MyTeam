@@ -1,5 +1,6 @@
 import type { prisma } from "@/lib/db";
 import type { CoachTraining } from "@/lib/coachTrainingSchedule";
+import { trainingRequiresCheckIn } from "@/lib/trainingAttendanceDefaults";
 
 export type CoachTrainingLimit = { sessionId?: string; recurrenceId?: string; maxSpots: number | null };
 export function parseCoachTrainingLimits(raw: unknown): CoachTrainingLimit[] {
@@ -11,7 +12,9 @@ export function parseCoachTrainingLimits(raw: unknown): CoachTrainingLimit[] {
   });
 }
 
-export async function applyCoachTrainingLimits(tx: Pick<typeof prisma, "limitedTrainingEvent" | "limitedTrainingRegistration" | "trainingSessionPlayer">, clubId: string, groupId: string, trainings: CoachTraining[], limits: CoachTrainingLimit[]) {
+export async function applyCoachTrainingLimits(tx: Pick<typeof prisma, "club" | "limitedTrainingEvent" | "limitedTrainingRegistration" | "trainingSessionPlayer">, clubId: string, groupId: string, trainings: CoachTraining[], limits: CoachTrainingLimit[]) {
+  const club = await tx.club.findUniqueOrThrow({ where: { id: clubId }, select: { paymentWorkflow: true } });
+  const requiresCheckIn = trainingRequiresCheckIn(club.paymentWorkflow);
   for (const item of trainings) {
     if (item.status !== "scheduled") continue;
     const limit = limits.find((l) => l.sessionId === item.id) ?? limits.find((l) => l.recurrenceId && l.recurrenceId === item.recurrenceId);
@@ -20,16 +23,17 @@ export async function applyCoachTrainingLimits(tx: Pick<typeof prisma, "limitedT
     const existing = await tx.limitedTrainingEvent.findFirst({ where: { clubId, scopeKey }, select: { id: true, maxSpots: true } });
     if (limit.maxSpots === null) {
       if (existing) {
-        await tx.trainingSessionPlayer.updateMany({ where: { trainingSessionId: item.id, reasonCode: "limited_event" }, data: { present: true, reasonCode: null, reasonText: null } });
+        if (!requiresCheckIn) await tx.trainingSessionPlayer.updateMany({ where: { trainingSessionId: item.id, reasonCode: "limited_event" }, data: { present: true, reasonCode: null, reasonText: null } });
         await tx.limitedTrainingEvent.delete({ where: { id: existing.id } });
       }
       continue;
     }
     if (!existing) {
       await tx.limitedTrainingEvent.create({ data: { clubId, scopeKey, scopeId: groupId, trainingDate: new Date(`${item.date}T00:00:00Z`), maxSpots: limit.maxSpots } });
-      await tx.trainingSessionPlayer.updateMany({ where: { trainingSessionId: item.id }, data: { present: false, reasonCode: "limited_event", reasonText: null } });
+      if (!requiresCheckIn) await tx.trainingSessionPlayer.updateMany({ where: { trainingSessionId: item.id }, data: { present: false, reasonCode: "limited_event", reasonText: null } });
     } else if (existing.maxSpots !== limit.maxSpots) {
       await tx.limitedTrainingEvent.update({ where: { id: existing.id }, data: { maxSpots: limit.maxSpots } });
+      if (requiresCheckIn) continue;
       const registrations = await tx.limitedTrainingRegistration.findMany({ where: { eventId: existing.id }, select: { playerId: true }, orderBy: { registeredAt: "asc" } });
       for (let i = Math.min(existing.maxSpots, limit.maxSpots); i < Math.min(Math.max(existing.maxSpots, limit.maxSpots), registrations.length); i++) {
         const present = i < limit.maxSpots;
