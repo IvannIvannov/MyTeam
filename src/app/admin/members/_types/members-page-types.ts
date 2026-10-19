@@ -202,6 +202,9 @@ interface TrainingWeekSessionItem {
 }
 
 interface ClubMatch {
+  eventType?: string;
+  homeScore: number | null;
+  awayScore: number | null;
   id: string;
   customGroupId: string | null;
   opponent: string;
@@ -227,11 +230,12 @@ interface AttendanceReportPlayer {
   id: string;
   fullName: string;
   teamGroup: number | null;
-  attendance: Record<string, { present: boolean; reasonCode: string | null }>;
+  attendance: Record<string, { present: boolean; reasonCode: string | null; reasonText?: string | null }>;
 }
 
 interface AttendanceReportData {
   trainingDates: string[];
+  events?: Record<string, { matchId: string; date: string; time: string; opponent: string }>;
   players: AttendanceReportPlayer[];
 }
 

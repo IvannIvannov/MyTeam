@@ -23,12 +23,13 @@ export async function GET(
           id: true,
           clubId: true,
           teamGroup: true,
+          isActive: true,
         },
       },
     },
   });
 
-  if (!card?.player) {
+  if (!card?.player?.isActive) {
     return NextResponse.json({ error: "Member not found" }, { status: 404 });
   }
 
@@ -49,7 +50,7 @@ export async function GET(
   const allMatches = await prisma.clubMatch.findMany({
     where: { clubId, matchDate: { gte: todayIso, lte: endIso } },
     orderBy: [{ matchDate: "asc" }, { matchTime: "asc" }],
-    select: { id: true, customGroupId: true, opponent: true, location: true, matchDate: true, matchTime: true, durationMinutes: true, isHome: true, teamGroups: true },
+    select: { attendanceEnabled: true, players: { where: { playerId }, select: { present: true, reasonCode: true, reasonText: true } }, id: true, customGroupId: true, eventType: true, opponent: true, location: true, matchDate: true, matchTime: true, durationMinutes: true, isHome: true, teamGroups: true },
   });
 
   const matches = allMatches.filter((m) => {
@@ -62,5 +63,12 @@ export async function GET(
   });
 
   // Strip customGroupId before sending to client
-  return NextResponse.json({ matches: matches.map(({ customGroupId: _cg, ...rest }) => rest) });
+  return NextResponse.json({ matches: matches.map((match) => ({
+    id: match.id, eventType: match.eventType, opponent: match.opponent, location: match.location,
+    matchDate: match.matchDate, matchTime: match.matchTime, durationMinutes: match.durationMinutes,
+    isHome: match.isHome, teamGroups: match.teamGroups, attendanceEnabled: match.attendanceEnabled,
+    present: match.players[0]?.present ?? true,
+    reasonCode: match.players[0]?.reasonCode ?? null,
+    reasonText: match.players[0]?.reasonText ?? null,
+  })) });
 }

@@ -13,6 +13,9 @@
 # testing
 /coverage
 
+# Local UI verification screenshots
+/tmp/ui-checks/
+
 # next.js
 /.next/
 /out/

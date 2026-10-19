@@ -1,4 +1,11 @@
 "use client";
+import { MATCH_EVENT_TYPES, matchEventTypeLabel, type MatchEventType } from "@/lib/matchEventType";
+import MatchOverlapWarning from "@/components/MatchOverlapWarning";
+import { MatchResultFields } from "@/components/MatchResultFields";
+import { buildMatchDetailsUpdate, type MatchResultSnapshot } from "@/lib/matchDetailsUpdate";
+import { hasMatchFinished } from "@/lib/matchResult";
+import MatchAttendancePanel from "@/components/MatchAttendancePanel";
+import MatchHistoryModal from "@/components/MatchHistoryModal";
 import GroupAssignmentFeeNotice from "@/app/admin/members/_components/GroupAssignmentFeeNotice";
 import { previewGroupAssignmentFees, rebaseGroupAssignmentSelection, type GroupFeeSettings } from "@/lib/groupAssignmentFees";
 import MonthlyFeeModal from "@/app/admin/members/_components/MonthlyFeeModal";
@@ -419,7 +426,7 @@ function WeeklyGrid({
                       </span>
                       {session.eventType === "match" && (
                         <span className="amp-training-week-session-row-meta">
-                          {session.isHome ? "Домакин" : "Гост"}
+                          {session.label} · {session.isHome ? "Домакин" : "Гост"}
                         </span>
                       )}
                       {session.eventType !== "match" && session.limitedSpots && (
@@ -716,6 +723,7 @@ function AdminMembersPageContent() {
   const [clubLogoUrl, setClubLogoUrl] = useState<string | null>(null);
   const [reportsOpen, setReportsOpen] = useState(false);
   const [attendanceDashboardOpen, setAttendanceDashboardOpen] = useState(false);
+  const [matchHistoryOpen, setMatchHistoryOpen] = useState(false);
   const [editingClub, setEditingClub] = useState<ClubOption | null>(null);
   const [clubEditForm, setClubEditForm] = useState({
     name: "",
@@ -813,9 +821,10 @@ function AdminMembersPageContent() {
   const [trainingDaysPreExistingDates, setTrainingDaysPreExistingDates] = useState<string[]>([]);
   const [trainingDaysSingleEditDate, setTrainingDaysSingleEditDate] = useState<string | null>(null);
   const [scheduleEventModalOpen, setScheduleEventModalOpen] = useState(false);
-  const [scheduleEventStep, setScheduleEventStep] = useState<"type" | "match-days" | "match-details">("type");
+  const [scheduleEventStep, setScheduleEventStep] = useState<"type" | "match-type" | "match-days" | "match-details">("type");
   const [matchEditorSaving, setMatchEditorSaving] = useState(false);
   const [matchEditorError, setMatchEditorError] = useState("");
+  const [matchEventType, setMatchEventType] = useState<MatchEventType | null>(null);
   const [matchSelectedDates, setMatchSelectedDates] = useState<string[]>([]);
   const [matchDetailsPerDay, setMatchDetailsPerDay] = useState<Record<string, { opponent: string; location: string; time: string; duration: string; isHome: boolean | null }>>({});
   const [matchTeamGroups, setMatchTeamGroups] = useState<number[]>([]);
@@ -825,7 +834,8 @@ function AdminMembersPageContent() {
   const [matchViewMatch, setMatchViewMatch] = useState<ClubMatch | null>(null);
   const [matchEditTarget, setMatchEditTarget] = useState<ClubMatch | null>(null);
   const [dayDetailsMatchEditOpen, setDayDetailsMatchEditOpen] = useState(false);
-  const [dayDetailsMatchEditForm, setDayDetailsMatchEditForm] = useState<{ opponent: string; location: string; matchDate: string; matchTime: string; durationMinutes: string; isHome: boolean; customGroupId: string | null }>({ opponent: "", location: "", matchDate: "", matchTime: "", durationMinutes: "90", isHome: true, customGroupId: null });
+  const dayDetailsMatchOriginalResult = useRef<MatchResultSnapshot>({ homeScore: null, awayScore: null });
+  const [dayDetailsMatchEditForm, setDayDetailsMatchEditForm] = useState<{ opponent: string; location: string; matchDate: string; matchTime: string; durationMinutes: string; isHome: boolean; customGroupId: string | null; homeScore: string; awayScore: string }>({ homeScore: "", awayScore: "", opponent: "", location: "", matchDate: "", matchTime: "", durationMinutes: "90", isHome: true, customGroupId: null });
   const [dayDetailsMatchSaving, setDayDetailsMatchSaving] = useState(false);
   const [dayDetailsMatchDeleteConfirm, setDayDetailsMatchDeleteConfirm] = useState(false);
   const [dayDetailsMatchError, setDayDetailsMatchError] = useState("");
@@ -4973,7 +4983,7 @@ function AdminMembersPageContent() {
   };
 
   const handleSaveMatch = async () => {
-    if (!clubId || matchSelectedDates.length === 0) return;
+    if (!clubId || !matchEventType || matchSelectedDates.length === 0) return;
     setMatchEditorSaving(true);
     setMatchEditorError("");
     const warnings: string[] = [];
@@ -4988,7 +4998,7 @@ function AdminMembersPageContent() {
         const res = await fetch(url, {
           method: existingId ? "PATCH" : "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ opponent: details.opponent, location: details.location, matchDate: date, matchTime: details.time, durationMinutes, isHome: details.isHome, teamGroups: matchTeamGroups, customGroupId: isCustomTrainingGroupMode ? (selectedCustomGroup?.id ?? (weekColorFilter ? (customTrainingGroups.find((g) => g.color === weekColorFilter)?.id ?? null) : null) ?? (customTrainingGroups.length === 1 ? customTrainingGroups[0].id : null)) : null }),
+          body: JSON.stringify({ eventType: matchEventType, opponent: details.opponent, location: details.location, matchDate: date, matchTime: details.time, durationMinutes, isHome: details.isHome, teamGroups: matchTeamGroups, customGroupId: isCustomTrainingGroupMode ? (selectedCustomGroup?.id ?? (weekColorFilter ? (customTrainingGroups.find((g) => g.color === weekColorFilter)?.id ?? null) : null) ?? (customTrainingGroups.length === 1 ? customTrainingGroups[0].id : null)) : null }),
         });
         const data = await res.json() as { error?: string; warning?: string };
         if (!res.ok) { setMatchEditorError(data.error ?? "Грешка при запазване."); return; }
@@ -5019,15 +5029,7 @@ function AdminMembersPageContent() {
       const res = await fetch(`/api/admin/clubs/${encodeURIComponent(clubId)}/matches/${encodeURIComponent(dayDetailsActiveMatch.id)}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          opponent: dayDetailsMatchEditForm.opponent,
-          location: dayDetailsMatchEditForm.location,
-          matchDate: dayDetailsMatchEditForm.matchDate,
-          matchTime: dayDetailsMatchEditForm.matchTime,
-          durationMinutes: Number.parseInt(dayDetailsMatchEditForm.durationMinutes || "90", 10),
-          isHome: dayDetailsMatchEditForm.isHome,
-          customGroupId: dayDetailsMatchEditForm.customGroupId,
-        }),
+        body: JSON.stringify(buildMatchDetailsUpdate(dayDetailsMatchEditForm, dayDetailsMatchOriginalResult.current, hasMatchFinished(dayDetailsActiveMatch))),
       });
       const data = await res.json() as { error?: string };
       if (!res.ok) { setDayDetailsMatchError(data.error ?? "Грешка при запазване."); return; }
@@ -5718,6 +5720,10 @@ function AdminMembersPageContent() {
               >
                 <ClipboardListIcon />
                 <span>Присъствия</span>
+              </button>
+              <button className="amp-download-links-btn amp-scheduler-settings-btn amp-btn--compact" onClick={() => setMatchHistoryOpen(true)} type="button">
+                <CalendarIcon />
+                <span>История на мачовете</span>
               </button>
               {isAdmin && (
                 <button
@@ -6913,6 +6919,7 @@ function AdminMembersPageContent() {
           coachGroupName={currentCoachGroupName}
         />
       )}
+      {matchHistoryOpen && clubId && <MatchHistoryModal clubId={clubId} clubName={clubName} clubLogoUrl={clubLogoUrl} coachGroupId={coachGroupId || undefined} coachGroupName={coachGroups.find((group) => group.id === coachGroupId)?.name} onClose={() => setMatchHistoryOpen(false)} />}
       {attendanceDashboardOpen && clubId && (
         <AttendanceDashboard
           onClose={() => setAttendanceDashboardOpen(false)}
@@ -6927,7 +6934,7 @@ function AdminMembersPageContent() {
           <div className="amp-modal amp-modal--match-view" onClick={(e) => e.stopPropagation()}>
             <div className="amp-modal-tint" aria-hidden="true" />
             <h2 className="amp-modal-title">
-              <span className="amp-modal-title-gradient amp-modal-title-gradient--match">Мач</span>
+              <span className="amp-modal-title-gradient amp-modal-title-gradient--match">{matchEventTypeLabel(matchViewMatch.eventType)}</span>
               <button className="amp-modal-close" onClick={() => setMatchViewPopupOpen(false)} aria-label="Затвори">
                 <XIcon />
               </button>
@@ -6966,11 +6973,13 @@ function AdminMembersPageContent() {
                 </div>
               )}
             </div>
+            {clubId && <MatchAttendancePanel key={matchViewMatch.id} clubId={clubId} matchId={matchViewMatch.id} />}
             <div className="amp-modal-actions amp-modal-actions--end" style={{ marginTop: "8px" }}>
               <button
                 type="button"
                 className="amp-btn amp-btn--ghost"
                 onClick={() => {
+                  dayDetailsMatchOriginalResult.current = { homeScore: matchViewMatch.homeScore, awayScore: matchViewMatch.awayScore };
                   setDayDetailsMatchEditForm({
                     opponent: matchViewMatch.opponent,
                     location: matchViewMatch.location,
@@ -6979,6 +6988,8 @@ function AdminMembersPageContent() {
                     durationMinutes: String(matchViewMatch.durationMinutes),
                     isHome: matchViewMatch.isHome,
                     customGroupId: matchViewMatch.customGroupId,
+                    homeScore: String(matchViewMatch.homeScore ?? ""),
+                    awayScore: String(matchViewMatch.awayScore ?? ""),
                   });
                   setDayDetailsMatchError("");
                   setDayDetailsMatchDeleteConfirm(false);
@@ -7275,12 +7286,12 @@ function AdminMembersPageContent() {
                                       key={date}
                                       type="button"
                                       className="amp-training-date-btn amp-training-date-btn--calendar-match-only"
-                                      aria-label={`Мач на ${formatIsoDateForDisplay(date)}`}
+                                      aria-label={`${matchEventTypeLabel(matchesForDate[0]?.eventType)} на ${formatIsoDateForDisplay(date)}`}
                                       onClick={() => { setMatchViewMatch(matchesForDate[0]!); setMatchViewPopupOpen(true); }}
                                     >
                                       <span className="amp-training-day-number">{dayNumber}</span>
                                       {matchesForDate[0]?.matchTime && (
-                                        <span className="amp-training-day-match">{matchesForDate[0].matchTime}</span>
+                                        <span className="amp-training-day-match">{matchEventTypeLabel(matchesForDate[0].eventType)} · {matchesForDate[0].matchTime}</span>
                                       )}
                                       <span className="amp-training-day-match amp-training-day-match--location">{matchesForDate[0]?.isHome ? "Д" : "Г"}</span>
                                     </button>
@@ -7301,7 +7312,7 @@ function AdminMembersPageContent() {
                                   >
                                     <span className="amp-training-day-number">{dayNumber}</span>
                                     {hasTrainingAndMatch && matchesForDate[0]?.matchTime && (
-                                      <span className="amp-training-day-match">{matchesForDate[0].matchTime}</span>
+                                      <span className="amp-training-day-match">{matchEventTypeLabel(matchesForDate[0].eventType)} · {matchesForDate[0].matchTime}</span>
                                     )}
                                     {hasTrainingAndMatch && (
                                       <span className="amp-training-day-match amp-training-day-match--location">{matchesForDate[0]?.isHome ? "Д" : "Г"}</span>
@@ -8077,11 +8088,11 @@ function AdminMembersPageContent() {
           className="amp-overlay amp-overlay--confirm"
           onClick={() => { if (!matchEditorSaving) { setScheduleEventModalOpen(false); setScheduleEventStep("type"); } }}
         >
-          <div className="amp-modal amp-modal--confirm" onClick={(e) => e.stopPropagation()}>
+          <div className={`amp-modal amp-modal--confirm${scheduleEventStep !== "type" ? " amp-modal--match-editor" : ""}`} onClick={(e) => e.stopPropagation()}>
             <div className="amp-modal-tint" aria-hidden="true" />
             <h2 className="amp-modal-title">
               <span className="amp-modal-title-gradient">
-                {scheduleEventStep === "type" ? "Насрочи събитие" : "Мач / Двубой / Състезание / Участие"}
+                {scheduleEventStep === "type" ? "Насрочи събитие" : scheduleEventStep === "match-type" ? "Избери вид събитие" : matchEventTypeLabel(matchEventType)}
               </span>
               <button
                 className="amp-modal-close"
@@ -8120,22 +8131,33 @@ function AdminMembersPageContent() {
                       setMatchSelectedDates([]);
                       setMatchDetailsPerDay({});
                       setMatchExistingIdByDate({});
-                      setScheduleEventStep("match-days");
+                      setMatchEventType(null);
+                      setScheduleEventStep("match-type");
                     }}
                   >
                     <span className="amp-schedule-event-type-icon amp-schedule-event-type-icon--match" aria-hidden="true" />
                     Мач / Двубой / Състезание / Участие
                   </button>
                 </div>
+              ) : scheduleEventStep === "match-type" ? (
+                <>
+                  <p className="amp-lbl" style={{ textAlign: "center" }}>Изберете вида на събитието</p>
+                  <div className="amp-match-event-types">
+                    {(Object.entries(MATCH_EVENT_TYPES) as [MatchEventType, string][]).map(([value, label]) => (
+                      <button key={value} type="button" className="amp-btn amp-btn--primary" onClick={() => { setMatchEventType(value); setScheduleEventStep("match-days"); }}>{label}</button>
+                    ))}
+                  </div>
+                  <div className="amp-modal-actions amp-modal-actions--end"><button type="button" className="amp-btn amp-btn--ghost" onClick={() => setScheduleEventStep("type")}>Назад</button></div>
+                </>
               ) : (
                 <>
                   <div className="amp-training-days-editor-header" style={{ flexDirection: "column", alignItems: "center", textAlign: "center" }}>
                     <span className="amp-lbl" style={{ textAlign: "center" }}>
                       {trainingAttendanceView === "trainingGroups" && !isCustomTrainingGroupMode
-                        ? "Добави мач за сборен отбор"
+                        ? `${matchEventTypeLabel(matchEventType)} за сборен отбор`
                         : trainingAttendanceView === "trainingGroups" && isCustomTrainingGroupMode
-                          ? "Добави мач за персонализирана група"
-                          : "Добави мач"}
+                          ? `${matchEventTypeLabel(matchEventType)} за персонализирана група`
+                          : matchEventTypeLabel(matchEventType)}
                     </span>
                     {scheduleEventStep === "match-days" && (
                       <span className="amp-lbl" style={{ textAlign: "center" }}>Избрани: {matchSelectedDates.length}</span>
@@ -8150,9 +8172,9 @@ function AdminMembersPageContent() {
                         justifyContent: "center",
                         padding: "6px 10px",
                         borderRadius: "999px",
-                        border: "1px solid rgba(50,205,50,0.45)",
-                        background: "rgba(50,205,50,0.16)",
-                        color: "#d7ffd7",
+                        border: "1px solid rgba(249,115,22,0.45)",
+                        background: "rgba(249,115,22,0.16)",
+                        color: "#fed7aa",
                         fontWeight: 700,
                         textAlign: "center",
                         width: "100%",
@@ -8254,7 +8276,7 @@ function AdminMembersPageContent() {
                                     <span className="amp-training-day-number">{dayNumber}</span>
                                     {matchesForDate.slice(0, 2).map((match) => (
                                       <span key={match.id} className="amp-training-day-match">
-                                        {match.matchTime} {match.opponent}
+                                        {matchEventTypeLabel(match.eventType)} · {match.matchTime} {match.opponent}
                                       </span>
                                     ))}
                                     {matchesForDate.length > 2 && (
@@ -8271,7 +8293,7 @@ function AdminMembersPageContent() {
                         <button
                           type="button"
                           className="amp-btn amp-btn--ghost"
-                          onClick={() => { setScheduleEventStep("type"); setMatchEditorError(""); }}
+                          onClick={() => { setScheduleEventStep("match-type"); setMatchEditorError(""); }}
                           disabled={matchEditorSaving}
                         >
                           Назад
@@ -8324,6 +8346,7 @@ function AdminMembersPageContent() {
                                   disabled={matchEditorSaving}
                                 />
                               </label>
+                              {clubId && <MatchOverlapWarning clubId={clubId} date={date} time={details.time} duration={details.duration} isHome={details.isHome} />}
                               <div className="amp-edit-field">
                                 <span className="amp-lbl">Домакин / Гост</span>
                                 <div style={{ display: "flex", gap: 8 }}>
@@ -9565,7 +9588,7 @@ function AdminMembersPageContent() {
                       onClick={() => { setTrainingDayDetailsTab(`match-${match.id}`); setDayDetailsMatchEditOpen(false); setDayDetailsMatchDeleteConfirm(false); setDayDetailsMatchError(""); }}
                       disabled={trainingDayDetailsTabLoading || trainingNoteSaving}
                     >
-                      <span className="amp-day-details-tab-type">Мач</span>
+                      <span className="amp-day-details-tab-type">{matchEventTypeLabel(match.eventType)}</span>
                       <span className="amp-day-details-tab-time">{match.matchTime}</span>
                       {matchGroupName && <span className="amp-day-details-tab-label">{matchGroupName}</span>}
                     </button>
@@ -9592,6 +9615,7 @@ function AdminMembersPageContent() {
                         <span className="amp-lbl">Продължителност (мин.)</span>
                         <input type="number" className="amp-edit-input" min={1} max={1440} value={dayDetailsMatchEditForm.durationMinutes} onChange={(e) => setDayDetailsMatchEditForm((f) => ({ ...f, durationMinutes: e.target.value }))} disabled={dayDetailsMatchSaving} />
                       </div>
+                      {clubId && <MatchOverlapWarning clubId={clubId} date={dayDetailsMatchEditForm.matchDate} time={dayDetailsMatchEditForm.matchTime} duration={dayDetailsMatchEditForm.durationMinutes} isHome={dayDetailsMatchEditForm.isHome} excludeMatchId={dayDetailsActiveMatch.id} />}
                       <div className="amp-edit-field">
                         <span className="amp-lbl">Домакин / Гост</span>
                         <div style={{ display: "flex", gap: "8px" }}>
@@ -9618,6 +9642,7 @@ function AdminMembersPageContent() {
                           </select>
                         </div>
                       )}
+                      {hasMatchFinished(dayDetailsActiveMatch) && <MatchResultFields isHome={dayDetailsMatchEditForm.isHome} opponent={dayDetailsMatchEditForm.opponent} homeScore={dayDetailsMatchEditForm.homeScore} awayScore={dayDetailsMatchEditForm.awayScore} onChange={(homeScore, awayScore) => setDayDetailsMatchEditForm((form) => ({ ...form, homeScore, awayScore }))} disabled={dayDetailsMatchSaving} />}
                       {dayDetailsMatchError && <p style={{ color: "#ff6b6b", fontSize: 13, margin: 0 }}>{dayDetailsMatchError}</p>}
                       <div className="amp-modal-actions amp-modal-actions--end">
                         <button type="button" className="amp-btn amp-btn--ghost" onClick={() => {
@@ -9682,6 +9707,7 @@ function AdminMembersPageContent() {
                             <span className="amp-match-view-value">{dayDetailsActiveMatch.durationMinutes} мин</span>
                           </div>
                         )}
+                      {clubId && <MatchAttendancePanel key={dayDetailsActiveMatch.id} clubId={clubId} matchId={dayDetailsActiveMatch.id} />}
                       </div>
                       <div className="amp-modal-actions amp-modal-actions--end" style={{ marginTop: "8px" }}>
                         <button
@@ -9695,6 +9721,7 @@ function AdminMembersPageContent() {
                           type="button"
                           className="amp-btn amp-btn--ghost"
                           onClick={() => {
+                            dayDetailsMatchOriginalResult.current = { homeScore: dayDetailsActiveMatch.homeScore, awayScore: dayDetailsActiveMatch.awayScore };
                             setDayDetailsMatchEditForm({
                               opponent: dayDetailsActiveMatch.opponent,
                               location: dayDetailsActiveMatch.location,
@@ -9703,6 +9730,8 @@ function AdminMembersPageContent() {
                               durationMinutes: String(dayDetailsActiveMatch.durationMinutes),
                               isHome: dayDetailsActiveMatch.isHome,
                               customGroupId: dayDetailsActiveMatch.customGroupId,
+                              homeScore: String(dayDetailsActiveMatch.homeScore ?? ""),
+                              awayScore: String(dayDetailsActiveMatch.awayScore ?? ""),
                             });
                             setDayDetailsMatchError("");
                             setDayDetailsMatchEditOpen(true);
@@ -10196,11 +10225,11 @@ function AdminMembersPageContent() {
                               <span
                                 key={date}
                                 className="amp-training-date-btn amp-training-date-btn--calendar-match-only"
-                                aria-label={`Мач на ${formatIsoDateForDisplay(date)}`}
+                                aria-label={`${matchEventTypeLabel(matchesForDate[0]?.eventType)} на ${formatIsoDateForDisplay(date)}`}
                               >
                                 <span className="amp-training-day-number">{dayNumber}</span>
                                 {matchesForDate[0]?.matchTime && (
-                                  <span className="amp-training-day-match">{matchesForDate[0].matchTime}</span>
+                                  <span className="amp-training-day-match">{matchEventTypeLabel(matchesForDate[0].eventType)} · {matchesForDate[0].matchTime}</span>
                                 )}
                                 <span className="amp-training-day-match amp-training-day-match--location">{matchesForDate[0]?.isHome ? "Д" : "Г"}</span>
                               </span>
@@ -10221,7 +10250,7 @@ function AdminMembersPageContent() {
                             >
                               <span className="amp-training-day-number">{dayNumber}</span>
                               {hasTrainingAndMatch && matchesForDate[0]?.matchTime && (
-                                <span className="amp-training-day-match">{matchesForDate[0].matchTime}</span>
+                                <span className="amp-training-day-match">{matchEventTypeLabel(matchesForDate[0].eventType)} · {matchesForDate[0].matchTime}</span>
                               )}
                               {hasTrainingAndMatch && (
                                 <span className="amp-training-day-match amp-training-day-match--location">{matchesForDate[0]?.isHome ? "Д" : "Г"}</span>
