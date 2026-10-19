@@ -4,8 +4,8 @@ import { DELETE, PATCH } from "@/app/api/admin/clubs/[id]/training-attendance/se
 import { expandCoachRecurrences, parseCoachRecurrences } from "./coachTrainingSchedule";
 
 const db = vi.hoisted(() => ({
-  $transaction: vi.fn(), $executeRaw: vi.fn(),
-  trainingSession: { findFirst: vi.fn(), findMany: vi.fn(), delete: vi.fn(), deleteMany: vi.fn(), upsert: vi.fn() },
+  $transaction: vi.fn(), $executeRaw: vi.fn(), $queryRaw: vi.fn(),
+  trainingSession: { findFirst: vi.fn(), findMany: vi.fn(), delete: vi.fn(), deleteMany: vi.fn(), updateMany: vi.fn(), upsert: vi.fn() },
   coachGroup: { findFirst: vi.fn(), update: vi.fn() },
   limitedTrainingEvent: { deleteMany: vi.fn() }, trainingNote: { deleteMany: vi.fn() },
   club: { findUnique: vi.fn() }, clubCustomTrainingGroup: { findFirst: vi.fn(), update: vi.fn() },
@@ -27,6 +27,8 @@ const params = { params: Promise.resolve({ id: group }) };
 const request = (body: object, method = "DELETE") => new NextRequest("http://localhost/training", { method, headers: { cookie: "admin_session=test" }, body: JSON.stringify(body) });
 beforeEach(() => {
   vi.clearAllMocks();
+  db.trainingSession.updateMany.mockReset().mockResolvedValue({ count: 0 });
+  db.trainingSession.deleteMany.mockReset().mockResolvedValue({ count: 0 });
   db.$transaction.mockImplementation(async (callback) => callback(db));
   db.player.findMany.mockResolvedValue([]);
   db.clubTrainingGroupSchedule.findMany.mockResolvedValue([]);
@@ -38,10 +40,29 @@ beforeEach(() => {
 
 it("permanently deletes only the selected coach session and its registration event, preserving the other session", async () => {
   expect((await DELETE(request({ date, trainingSessionId: id }), params)).status).toBe(200);
-  expect(db.trainingSession.delete).toHaveBeenCalledWith({ where: { id } });
+  expect(db.trainingSession.deleteMany).toHaveBeenCalledWith({ where: { id, clubId: group, scopeKey, players: { none: { OR: [{ attendanceRecorded: true }, { creditChargedAt: { not: null } }] } } } });
+  expect(db.trainingSession.updateMany).toHaveBeenCalledWith({ where: { id, clubId: group, scopeKey, players: { some: { OR: [{ attendanceRecorded: true }, { creditChargedAt: { not: null } }] } } }, data: { status: "cancelled", removedFromSchedule: true } });
   expect(db.limitedTrainingEvent.deleteMany).toHaveBeenCalledWith({ where: { clubId: group, OR: [{ scopeKey: `${scopeKey}:session:${id}` }, { scopeKey, trainingDate: new Date(`${date}T00:00:00Z`) }] } });
   expect(db.coachGroup.update).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ trainingDates: [date], trainingDateTimes: { [date]: "18:00" }, trainingRecurrences: [expect.objectContaining({ excludedDates: [date] })] }) }));
-  expect(db.trainingSession.deleteMany).not.toHaveBeenCalled();
+  expect(db.trainingSession.delete).not.toHaveBeenCalled();
+});
+it("keeps a charged coach session and its attendance when the training-day action removes it", async () => {
+  const stored = await db.trainingSession.findFirst();
+  const attendance = { attendanceRecorded: true, creditChargedAt: new Date() };
+  let exists = true;
+  db.trainingSession.updateMany.mockImplementation(async ({ where, data }) => {
+    if (where.players.some && attendance.creditChargedAt) Object.assign(stored, data);
+    return { count: 1 };
+  });
+  db.trainingSession.deleteMany.mockImplementation(async ({ where }) => {
+    if (!where.players?.none || !attendance.creditChargedAt) exists = false;
+    return { count: 0 };
+  });
+  expect((await DELETE(request({ date, trainingSessionId: id }), params)).status).toBe(200);
+  expect(exists).toBe(true);
+  expect(stored).toMatchObject({ status: "cancelled", removedFromSchedule: true });
+  expect(attendance.creditChargedAt).toBeInstanceOf(Date);
+  expect(db.$queryRaw.mock.invocationCallOrder[0]).toBeLessThan(db.trainingSession.updateMany.mock.invocationCallOrder[0]);
 });
 it("does not delete another club's session or create a record when restoring a deleted coach session", async () => {
   db.trainingSession.findFirst.mockResolvedValue(null);
@@ -72,7 +93,7 @@ it("deletes a legacy date from its schedule along with scoped notes, registratio
   db.clubCustomTrainingGroup.findFirst.mockResolvedValue({ id, trainingDates: [date, "2026-10-13"], trainingWeekdays: [], trainingDateTimes: { [date]: "09:00", "2026-10-13": "18:00" }, trainingFieldSelections: {} });
   expect((await DELETE(request({ date, customTrainingGroupId: id }), params)).status).toBe(200);
   expect(db.clubCustomTrainingGroup.update).toHaveBeenCalledWith({ where: { id }, data: { trainingDates: ["2026-10-13"], trainingWeekdays: [], trainingDateTimes: { "2026-10-13": "18:00" }, trainingFieldSelections: {} } });
-  expect(db.trainingSession.deleteMany).toHaveBeenCalledWith({ where: { clubId: group, scopeKey: `custom_group:${id}`, trainingDate: new Date(`${date}T00:00:00Z`) } });
+  expect(db.trainingSession.deleteMany).toHaveBeenCalledWith({ where: { clubId: group, scopeKey: `custom_group:${id}`, trainingDate: new Date(`${date}T00:00:00Z`), players: { none: { OR: [{ attendanceRecorded: true }, { creditChargedAt: { not: null } }] } } } });
 });
 it("cleans up legacy absence reasons while preserving decisions shared with another training", async () => {
   db.club.findUnique.mockResolvedValue({ id: group, trainingGroupMode: "custom_group" });

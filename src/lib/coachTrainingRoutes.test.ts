@@ -12,7 +12,7 @@ const mocks = vi.hoisted(() => ({
   trainingSession: { findMany: vi.fn(), findFirst: vi.fn() },
   trainingSessionPlayer: { upsert: vi.fn() },
   trainingOptOut: { findMany: vi.fn(), upsert: vi.fn(), deleteMany: vi.fn() },
-  trainingNote: { findMany: vi.fn() },
+  trainingNote: { findMany: vi.fn(), findFirst: vi.fn() },
   limitedTrainingEvent: { findMany: vi.fn() },
   field: { findMany: vi.fn() },
   $transaction: vi.fn(),
@@ -35,6 +35,21 @@ const context = { params: Promise.resolve({ cardCode: "CARD" }) };
 const session = (id: string, time: string, present: boolean) => ({ id, status: "scheduled", createdAt: new Date(id === firstId ? "2026-10-01T00:00:00Z" : "2026-10-02T00:00:00Z"), scopeId: groupId, scopeType: "coachGroup", scopeKey, trainingDate: new Date(`${date}T00:00:00Z`), trainingTime: time, trainingDurationMinutes: 60, trainingFieldId: null, trainingFieldPieceIds: [], note: id === firstId ? "Morning note" : "Evening note", players: [{ playerId, playerName: "Player", teamGroup: null, player: { cards: [] }, present, reasonCode: present ? null : "sick", reasonText: null }] });
 
 describe("coach training API boundaries", () => {
+  it.each(["calendar_month", "rolling_30_days"])("uses legacy reservation absences ahead of default roster attendance for %s", async (paymentWorkflow) => {
+    const card = await mocks.card.findFirst(); card.player.club.paymentWorkflow = paymentWorkflow; card.player.coachGroups = [];
+    const legacy = { ...session(firstId, "09:00", true), scopeKey: "club", scopeType: "club", scopeId: null };
+    mocks.trainingSession.findMany.mockImplementation(async (args) => args.where.status === "cancelled" ? [] : [legacy]);
+    mocks.club.findUnique.mockResolvedValue(card.player.club);
+    mocks.player.findMany.mockResolvedValue([{ id: playerId, fullName: "Player", teamGroup: null, cards: [] }]);
+    mocks.trainingNote.findFirst.mockResolvedValue(null);
+    const memberData = await (await GET(new NextRequest("http://localhost/training"), context)).json();
+    expect(memberData.dates[0].optedOut).toBe(true);
+    const adminResponse = await attendance(new NextRequest(`http://localhost/training?date=${date}`, { headers: { cookie: "admin_session=token" } }), { params: Promise.resolve({ id: clubId }) });
+    expect(adminResponse.status).toBe(200);
+    const adminData = await adminResponse.json();
+    expect(adminData.players[0].optedOut).toBe(true);
+    expect(adminData.stats.attending).toBe(0);
+  });
   it.each(["calendar_month", "rolling_30_days"])("preserves member opt-in for %s through session and legacy date requests", async (paymentWorkflow) => {
     const card = await mocks.card.findFirst(); card.player.club.paymentWorkflow = paymentWorkflow;
     expect((await DELETE(new NextRequest("http://localhost/training", { method: "DELETE", body: JSON.stringify({ trainingSessionId: secondId }) }), context)).status).toBe(200);

@@ -101,7 +101,7 @@ export async function syncFutureTrainingSessions(input: {
   const scopeData = getTrainingSessionScopeData(input.scope);
   const futureDates = Array.from(new Set(input.trainingDates.filter((date) => date >= input.todayIso))).sort((a, b) => a.localeCompare(b));
 
-  await removeSessionsPreservingHistory(input.tx, {
+  await removeTrainingSessionsPreservingHistory(input.tx, {
       clubId: input.clubId,
       scopeKey: scopeData.scopeKey,
       trainingDate: {
@@ -266,7 +266,7 @@ export async function deleteFutureTrainingSessionsForScope(input: {
   scope: TrainingSessionScope;
   todayIso: string;
 }) {
-  await removeSessionsPreservingHistory(input.tx, {
+  await removeTrainingSessionsPreservingHistory(input.tx, {
       clubId: input.clubId,
       scopeKey: getTrainingSessionScopeKey(input.scope),
       trainingDate: {
@@ -275,10 +275,10 @@ export async function deleteFutureTrainingSessionsForScope(input: {
   });
 }
 
-async function removeSessionsPreservingHistory(tx: Pick<TrainingSessionWriter, "trainingSession" | "$queryRaw">, where: Prisma.TrainingSessionWhereInput & { clubId: string; scopeKey: string; trainingDate: { gte: Date } }) {
+export async function removeTrainingSessionsPreservingHistory(tx: Pick<TrainingSessionWriter, "trainingSession" | "$queryRaw">, where: Prisma.TrainingSessionWhereInput & { clubId: string; scopeKey: string }) {
   // Match the check-in endpoint's session lock before deciding whether a
   // session is untouched. Otherwise a concurrent check-in could be cascaded away.
-  await tx.$queryRaw`SELECT id FROM training_sessions WHERE club_id = ${where.clubId}::uuid AND scope_key = ${where.scopeKey} AND training_date >= ${where.trainingDate.gte} ORDER BY id FOR UPDATE`;
+  await tx.$queryRaw`SELECT id FROM training_sessions WHERE club_id = ${where.clubId}::uuid AND scope_key = ${where.scopeKey} ORDER BY id FOR UPDATE`;
   const history = { OR: [{ attendanceRecorded: true }, { creditChargedAt: { not: null } }] };
   await tx.trainingSession.updateMany({ where: { ...where, players: { some: history } }, data: { status: "cancelled", removedFromSchedule: true } });
   await tx.trainingSession.deleteMany({ where: { ...where, players: { none: history } } });

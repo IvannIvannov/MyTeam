@@ -800,7 +800,7 @@ export async function GET(
         sessions.push(...matchingGroups.map((g) => ({
           ...buildGroupSession(g, `custom_group:${g.id}`, date, limitedEventsForDate, fieldById, noteByScopeDate),
           ...(() => {
-            const attendance = sessionRows.find((s) => s.scopeKey === `custom_group:${g.id}` && utcDateToIsoDate(s.trainingDate) === date)?.players[0];
+            const attendance = context.requiresCheckIn ? sessionRows.find((s) => s.scopeKey === `custom_group:${g.id}` && utcDateToIsoDate(s.trainingDate) === date)?.players[0] : undefined;
             return {
               optedOut: attendance ? !attendance.present : optedOutByDate.has(date),
               optOutReasonCode: attendance ? attendance.reasonCode : optedOutByDate.get(date)?.reasonCode ?? null,
@@ -829,9 +829,9 @@ export async function GET(
         sessions = [
           {
             scopeKey: singleScopeKey === "club" ? "" : singleScopeKey,
-            optedOut: session?.players[0] ? !session.players[0].present : optedOutByDate.has(date),
-            optOutReasonCode: session?.players[0]?.reasonCode ?? optedOutByDate.get(date)?.reasonCode ?? null,
-            optOutReasonText: session?.players[0]?.reasonText ?? optedOutByDate.get(date)?.reasonText ?? null,
+            optedOut: context.requiresCheckIn && session?.players[0] ? !session.players[0].present : optedOutByDate.has(date),
+            optOutReasonCode: context.requiresCheckIn && session?.players[0] ? session.players[0].reasonCode : optedOutByDate.get(date)?.reasonCode ?? null,
+            optOutReasonText: context.requiresCheckIn && session?.players[0] ? session.players[0].reasonText : optedOutByDate.get(date)?.reasonText ?? null,
             note: noteByScopeDate.get(`${singleScopeKey}:${date}`) ?? noteByScopeDate.get(`club:${date}`) ?? "",
             trainingTime: session?.trainingTime ?? context.trainingDateTimes[date] ?? context.fallbackTrainingTime ?? "",
             trainingDurationMinutes: session?.trainingDurationMinutes ?? context.trainingDurationMinutes,

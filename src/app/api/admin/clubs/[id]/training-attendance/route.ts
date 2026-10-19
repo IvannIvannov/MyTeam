@@ -1,4 +1,5 @@
 import { TRAINING_SELECTION_WINDOW_DAYS } from "@/lib/trainingScheduleWindow";
+import { trainingRequiresCheckIn } from "@/lib/trainingAttendanceDefaults";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { publishMemberUpdated } from "@/lib/memberEvents";
@@ -224,6 +225,7 @@ export async function GET(
     select: {
       id: true,
       name: true,
+      paymentWorkflow: true,
       trainingDates: true,
       trainingTime: true,
       trainingDateTimes: true,
@@ -564,7 +566,7 @@ export async function GET(
   }
   // Session attendance is authoritative after an individual training check-in.
   const selectedAttendance = new Map<string, boolean>();
-  for (const session of attendanceSessions) {
+  for (const session of trainingRequiresCheckIn(club.paymentWorkflow) ? attendanceSessions : []) {
     const date = utcDateToIsoDate(session.trainingDate);
     const attendance = new Map(session.players.filter((row) => row.playerId).map((row) => [row.playerId!, row.present]));
     const absentCount = players.filter((player) => attendance.has(player.id) ? !attendance.get(player.id) : allOptOuts.some((row) => row.playerId === player.id && utcDateToIsoDate(row.trainingDate) === date)).length;
