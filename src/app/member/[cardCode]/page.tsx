@@ -8,6 +8,7 @@ import { use, useEffect, useRef, useState, type CSSProperties } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { NotificationText } from "@/components/NotificationText";
 import MemberTrainingSessions from "@/components/MemberTrainingSessions";
+import TrainingCheckInPicker from "@/components/TrainingCheckInPicker";
 import { uploadImage } from "@/lib/uploadImage";
 import { extractUploadPathFromCloudinaryUrl } from "@/lib/cloudinaryImagePath";
 import { getCompatiblePushSubscription } from "@/lib/push/browser";
@@ -416,6 +417,7 @@ export default function MemberCardPage({
   const [paymentError, setPaymentError] = useState<string | null>(null);
   const [paymentTrainingCredits, setPaymentTrainingCredits] = useState("");
   const [trainingCreditLoading, setTrainingCreditLoading] = useState(false);
+  const [trainingCheckInOpen, setTrainingCheckInOpen] = useState(false);
   const [trainingCreditError, setTrainingCreditError] = useState<string | null>(null);
   const [trainingCreditSuccess, setTrainingCreditSuccess] = useState<string | null>(null);
   const [pauseModalOpen, setPauseModalOpen] = useState(false);
@@ -1523,7 +1525,7 @@ export default function MemberCardPage({
     }
   };
 
-  const handleTrainingCreditCheckIn = async () => {
+  const handleTrainingCreditCheckIn = async (trainingSessionId: string) => {
     if (!member || trainingCreditLoading) return;
     setTrainingCreditLoading(true);
     setTrainingCreditError(null);
@@ -1531,6 +1533,8 @@ export default function MemberCardPage({
     try {
       const response = await fetch(`/api/members/${normalizedCardCode}/training-credit/check-in`, {
         method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ trainingSessionId }),
       });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) {
@@ -1540,6 +1544,7 @@ export default function MemberCardPage({
             : "Грешка при чекиране на тренировка",
         );
       }
+      void fetchTrainingDays();
       const refreshed = await fetch(`/api/members/${normalizedCardCode}`, { cache: "no-store" });
       if (refreshed.ok) {
         setMember((await refreshed.json()) as MemberProfile);
@@ -1562,6 +1567,7 @@ export default function MemberCardPage({
       );
     } catch (e) {
       setTrainingCreditError(e instanceof Error ? e.message : "Възникна грешка");
+      throw e;
     } finally {
       setTrainingCreditLoading(false);
     }
@@ -2303,6 +2309,7 @@ export default function MemberCardPage({
         </div>}
 
         {/* Below card buttons */}
+        {trainingCheckInOpen && <TrainingCheckInPicker cardCode={normalizedCardCode} onClose={() => setTrainingCheckInOpen(false)} onConfirm={handleTrainingCreditCheckIn} />}
         <div className="below-card">
           {canManagePayments && (<>
             <>
@@ -2316,7 +2323,7 @@ export default function MemberCardPage({
               {isTrainingCreditBasedPayment && (
                 <button
                   className="add-btn member-action-btn training-credit-btn"
-                  onClick={handleTrainingCreditCheckIn}
+                  onClick={() => setTrainingCheckInOpen(true)}
                   disabled={
                     trainingCreditLoading ||
                     remainingTrainingCredits <= 0 ||
@@ -2963,7 +2970,7 @@ export default function MemberCardPage({
                       )}
                       {trainingDayPopupTab === "training" ? (
                         trainingDetailsItem.sessions.some((s) => s.id) ? (
-                          <MemberTrainingSessions key={trainingDetailsItem.date} date={trainingDetailsItem.date} sessions={trainingDetailsItem.sessions} cardCode={normalizedCardCode} onUpdated={fetchTrainingDays} />
+                          <MemberTrainingSessions key={trainingDetailsItem.date} date={trainingDetailsItem.date} sessions={trainingDetailsItem.sessions} cardCode={normalizedCardCode} onUpdated={fetchTrainingDays} attendanceEnabled={!isTrainingCreditBasedPayment} />
                         ) : (
                         <>
                           <div className="training-attendance-info-card">
@@ -3150,7 +3157,7 @@ export default function MemberCardPage({
                                     )}
                                   </div>
                                 );
-                              })() : (
+                              })() : !isTrainingCreditBasedPayment && (
                                 <div className="training-attendance-buttons" style={{ marginTop: 8 }}>
                                   <button
                                     className={`pm-btn training-attend-btn${!trainingDetailsItem.optedOut ? " training-btn-selected" : ""}`}
@@ -3208,7 +3215,7 @@ export default function MemberCardPage({
                           )}
                           {trainingDetailsItem.sessions.length === 1 ? (
                             <>
-                              <p className="training-attendance-choice-label">Заявка</p>
+                              {(trainingDetailsItem.limitedEvent || !isTrainingCreditBasedPayment) && <p className="training-attendance-choice-label">Заявка</p>}
                               {trainingDetailsItem.limitedEvent ? (
                                 <div className="training-attendance-buttons" style={{ flexDirection: "column", gap: 10 }}>
                                   {registerError && registerSavingEventId === trainingDetailsItem.limitedEvent.id && (
@@ -3299,7 +3306,7 @@ export default function MemberCardPage({
                                     </button>
                                   )}
                                 </div>
-                              ) : (
+                              ) : !isTrainingCreditBasedPayment && (
                                 <div className="training-attendance-buttons">
                                   <button
                                     className={`pm-btn training-attend-btn${!trainingDetailsItem.optedOut ? " training-btn-selected" : ""}`}

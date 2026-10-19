@@ -375,6 +375,7 @@ model TrainingSessionPlayer {
   teamGroup         Int?            @map("team_group")
   present           Boolean         @default(true)
   attendanceRecorded Boolean        @default(false) @map("attendance_recorded")
+  creditChargedAt   DateTime?        @map("credit_charged_at") @db.Timestamptz(6)
   reasonCode        String?         @map("reason_code")
   reasonText        String?         @map("reason_text")
   createdAt         DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)

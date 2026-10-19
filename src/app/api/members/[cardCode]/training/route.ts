@@ -1,4 +1,5 @@
 import { TRAINING_SELECTION_WINDOW_DAYS } from "@/lib/trainingScheduleWindow";
+import { trainingRequiresCheckIn } from "@/lib/trainingAttendanceDefaults";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { sendPushToClubAdmins } from "@/lib/push/adminService";
@@ -220,6 +221,7 @@ async function getMemberTrainingContext(cardCode: string) {
             select: {
               id: true,
               sports: true,
+              paymentWorkflow: true,
               trainingDates: true,
               trainingDateTimes: true,
               trainingTime: true,
@@ -436,6 +438,7 @@ async function getMemberTrainingContext(cardCode: string) {
     playerName: card.player.fullName,
     clubId: card.player.clubId,
     clubSports: card.player.club.sports,
+    requiresCheckIn: trainingRequiresCheckIn(card.player.club.paymentWorkflow),
     playerTeamGroup: card.player.teamGroup,
     playerCustomGroupIds: card.player.customTrainingGroups.map((g) => g.group.id),
     playerCoachGroupIds: card.player.coachGroups.map((g) => g.id),
@@ -785,7 +788,7 @@ export async function GET(
           const limited = limitedEventsForDate.find((e) => e.scopeKey === `${s.scopeKey}:session:${s.id}`) ?? (original?.id === s.id ? limitedEventsForDate.find((e) => e.scopeKey === s.scopeKey) : null);
           return { id: s.id, scopeKey: s.scopeKey, note: s.note ?? "", trainingTime: s.trainingTime ?? "", trainingDurationMinutes: s.trainingDurationMinutes,
             trainingFieldName: field?.name ?? null, trainingFieldType: field?.fieldType ?? null, trainingFieldPieces: field?.pieces.map((p) => p.name) ?? [], trainingFieldPieceNames: field?.pieces.filter((p) => s.trainingFieldPieceIds.includes(p.id)).map((p) => p.name) ?? [],
-            optedOut: attendance ? !attendance.present : false, optOutReasonCode: attendance?.reasonCode ?? null, optOutReasonText: attendance?.reasonText ?? null, limitedEvent: limited ? { id: limited.id, maxSpots: limited.maxSpots, isRegistered: limited.isRegistered, isConfirmed: limited.isConfirmed, waitlistPosition: limited.waitlistPosition, spotsRemaining: limited.spotsRemaining } : null };
+            optedOut: attendance ? !attendance.present : context.requiresCheckIn, optOutReasonCode: attendance?.reasonCode ?? null, optOutReasonText: attendance?.reasonText ?? null, limitedEvent: limited ? { id: limited.id, maxSpots: limited.maxSpots, isRegistered: limited.isRegistered, isConfirmed: limited.isConfirmed, waitlistPosition: limited.waitlistPosition, spotsRemaining: limited.spotsRemaining } : null };
         });
       }
       if (context.hasCustomGroupSchedule) {
@@ -796,9 +799,14 @@ export async function GET(
         );
         sessions.push(...matchingGroups.map((g) => ({
           ...buildGroupSession(g, `custom_group:${g.id}`, date, limitedEventsForDate, fieldById, noteByScopeDate),
-          optedOut: optedOutByDate.has(date),
-          optOutReasonCode: optedOutByDate.get(date)?.reasonCode ?? null,
-          optOutReasonText: optedOutByDate.get(date)?.reasonText ?? null,
+          ...(() => {
+            const attendance = sessionRows.find((s) => s.scopeKey === `custom_group:${g.id}` && utcDateToIsoDate(s.trainingDate) === date)?.players[0];
+            return {
+              optedOut: attendance ? !attendance.present : optedOutByDate.has(date),
+              optOutReasonCode: attendance ? attendance.reasonCode : optedOutByDate.get(date)?.reasonCode ?? null,
+              optOutReasonText: attendance ? attendance.reasonText : optedOutByDate.get(date)?.reasonText ?? null,
+            };
+          })(),
         })));
       } else if (!context.hasCoachGroupSchedule) {
         const singleScopeKey = context.activeScheduleScopeKey ?? (context.playerTeamGroup !== null ? `team_group:${context.playerTeamGroup}` : "club");
@@ -821,6 +829,9 @@ export async function GET(
         sessions = [
           {
             scopeKey: singleScopeKey === "club" ? "" : singleScopeKey,
+            optedOut: session?.players[0] ? !session.players[0].present : optedOutByDate.has(date),
+            optOutReasonCode: session?.players[0]?.reasonCode ?? optedOutByDate.get(date)?.reasonCode ?? null,
+            optOutReasonText: session?.players[0]?.reasonText ?? optedOutByDate.get(date)?.reasonText ?? null,
             note: noteByScopeDate.get(`${singleScopeKey}:${date}`) ?? noteByScopeDate.get(`club:${date}`) ?? "",
             trainingTime: session?.trainingTime ?? context.trainingDateTimes[date] ?? context.fallbackTrainingTime ?? "",
             trainingDurationMinutes: session?.trainingDurationMinutes ?? context.trainingDurationMinutes,
@@ -847,7 +858,7 @@ export async function GET(
       return [{
         date,
         weekday,
-        optedOut: context.hasCoachGroupSchedule ? sessions.every((s) => s.optedOut) : optedOutByDate.has(date),
+        optedOut: sessions.every((s) => s.optedOut),
         optOutReasonCode: optedOutByDate.get(date)?.reasonCode ?? null,
         optOutReasonText: optedOutByDate.get(date)?.reasonText ?? null,
         note: context.hasCoachGroupSchedule ? sessions.filter((s) => s.note).map((s) => `${s.trainingTime} · ${s.note}`).join("\n") : noteByDate.get(date) ?? "",

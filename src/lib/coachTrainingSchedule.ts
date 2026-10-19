@@ -1,4 +1,5 @@
 import { TRAINING_SELECTION_WINDOW_DAYS } from "@/lib/trainingScheduleWindow";
+import { trainingRequiresCheckIn } from "@/lib/trainingAttendanceDefaults";
 import { randomUUID } from "node:crypto";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
@@ -74,7 +75,9 @@ export async function readCoachTrainings(clubId: string, groupId: string) {
 }
 
 // Session IDs, rather than dates or start times, survive all edits.
-export async function writeCoachTrainings(tx: Pick<typeof prisma, "trainingSession" | "trainingSessionPlayer" | "coachGroup" | "player">, clubId: string, groupId: string, trainings: CoachTraining[], recurrences: CoachTrainingRecurrence[]) {
+export async function writeCoachTrainings(tx: Pick<typeof prisma, "trainingSession" | "trainingSessionPlayer" | "coachGroup" | "player" | "club">, clubId: string, groupId: string, trainings: CoachTraining[], recurrences: CoachTrainingRecurrence[]) {
+  const club = await tx.club.findUniqueOrThrow({ where: { id: clubId }, select: { paymentWorkflow: true } });
+  const requiresCheckIn = trainingRequiresCheckIn(club.paymentWorkflow);
   const today = getTodayIsoDateInTimeZone("Europe/Sofia");
   const scopeKey = `coach_group:${groupId}`;
   const existing = await tx.trainingSession.findMany({ where: { clubId, scopeKey }, include: { players: true } });
@@ -87,12 +90,12 @@ export async function writeCoachTrainings(tx: Pick<typeof prisma, "trainingSessi
     if (previous) await tx.trainingSession.update({ where: { id: item.id }, data });
     else await tx.trainingSession.create({ data: { id: item.id, clubId, scopeType: "coachGroup", scopeKey, scopeId: groupId, ...data } });
     const enrolled = new Set(previous?.players.map((p) => p.playerId) ?? []);
-    await tx.trainingSessionPlayer.createMany({ data: players.filter((p) => !enrolled.has(p.id)).map((p) => ({ trainingSessionId: item.id, playerId: p.id, playerName: p.fullName, teamGroup: p.teamGroup })), skipDuplicates: true });
+    await tx.trainingSessionPlayer.createMany({ data: players.filter((p) => !enrolled.has(p.id)).map((p) => ({ trainingSessionId: item.id, playerId: p.id, playerName: p.fullName, teamGroup: p.teamGroup, present: !requiresCheckIn })), skipDuplicates: true });
   }
   const retained = new Set(trainings.map((t) => t.id));
   for (const removed of existing) {
     if (utcDateToIsoDate(removed.trainingDate) < today || retained.has(removed.id)) continue;
-    const hasActivity = Boolean(removed.note) || removed.players.some((p) => p.attendanceRecorded || !p.present || p.reasonCode || p.reasonText);
+    const hasActivity = Boolean(removed.note) || removed.players.some((p) => p.attendanceRecorded || (!requiresCheckIn && !p.present) || p.reasonCode || p.reasonText);
     if (hasActivity || removed.status === "cancelled") await tx.trainingSession.update({ where: { id: removed.id }, data: { status: "cancelled" } });
     else await tx.trainingSession.delete({ where: { id: removed.id } });
   }

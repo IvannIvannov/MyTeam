@@ -516,7 +516,7 @@ export async function GET(
   const trainingDateAsDate = isoDateToUtcMidnight(trainingDate);
   const upcomingDatesAsDate = upcomingDates.map((date) => isoDateToUtcMidnight(date));
 
-  const [allOptOuts, note, sessionForDate] = await Promise.all([
+  const [allOptOuts, note, sessionForDate, attendanceSessions] = await Promise.all([
     playerIds.length > 0 && upcomingDatesAsDate.length > 0
       ? prisma.trainingOptOut.findMany({
           where: {
@@ -547,6 +547,10 @@ export async function GET(
       where: { clubId: id, scopeKey, trainingDate: trainingDateAsDate },
       select: { status: true },
     }),
+    prisma.trainingSession.findMany({
+      where: { clubId: id, scopeKey, trainingDate: { in: upcomingDatesAsDate }, status: { not: "cancelled" } },
+      select: { trainingDate: true, players: { select: { playerId: true, present: true } } },
+    }),
   ]);
 
   const optedOutCountByDate = new Map<string, number>();
@@ -558,13 +562,22 @@ export async function GET(
       selectedDateOptedOutSet.add(item.playerId);
     }
   }
+  // Session attendance is authoritative after an individual training check-in.
+  const selectedAttendance = new Map<string, boolean>();
+  for (const session of attendanceSessions) {
+    const date = utcDateToIsoDate(session.trainingDate);
+    const attendance = new Map(session.players.filter((row) => row.playerId).map((row) => [row.playerId!, row.present]));
+    const absentCount = players.filter((player) => attendance.has(player.id) ? !attendance.get(player.id) : allOptOuts.some((row) => row.playerId === player.id && utcDateToIsoDate(row.trainingDate) === date)).length;
+    optedOutCountByDate.set(date, absentCount);
+    if (date === trainingDate) for (const [playerId, present] of attendance) selectedAttendance.set(playerId, present);
+  }
 
   const playersWithStatus = players.map((player) => ({
     id: player.id,
     fullName: player.fullName,
     teamGroup: player.teamGroup,
     cardCode: player.cards[0]?.cardCode ?? null,
-    optedOut: selectedDateOptedOutSet.has(player.id),
+    optedOut: selectedAttendance.has(player.id) ? !selectedAttendance.get(player.id) : selectedDateOptedOutSet.has(player.id),
   }));
   const totalPlayers = playersWithStatus.length;
 
