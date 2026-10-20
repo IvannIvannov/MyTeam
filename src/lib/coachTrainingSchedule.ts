@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
+import { isEligibleForMembership } from "@/lib/attendanceEligibility";
 import { getTodayIsoDateInTimeZone, getWeekdayMondayFirst, isIsoDate, isoDateToUtcMidnight, normalizeTrainingDurationMinutes, normalizeTrainingTime, utcDateToIsoDate } from "@/lib/training";
 import { parseTrainingFieldSelection } from "@/lib/trainingFields";
 
@@ -78,7 +79,7 @@ export async function writeCoachTrainings(tx: Pick<typeof prisma, "trainingSessi
   const scopeKey = `coach_group:${groupId}`;
   const existing = await tx.trainingSession.findMany({ where: { clubId, scopeKey }, include: { players: true } });
   const existingById = new Map(existing.map((s) => [s.id, s]));
-  const players = await tx.player.findMany({ where: { clubId, isActive: true, coachGroups: { some: { id: groupId } } }, select: { id: true, fullName: true, teamGroup: true } });
+  const players = await tx.player.findMany({ where: { clubId, isActive: true, coachGroups: { some: { id: groupId } } }, select: { id: true, fullName: true, teamGroup: true, createdAt: true, attendanceStartedAt: true, attendanceMemberships: true } });
   for (const item of trainings) {
     const previous = existingById.get(item.id);
     if (item.date < today || (previous && utcDateToIsoDate(previous.trainingDate) < today)) throw new Error("Past trainings cannot be edited");
@@ -86,7 +87,7 @@ export async function writeCoachTrainings(tx: Pick<typeof prisma, "trainingSessi
     if (previous) await tx.trainingSession.update({ where: { id: item.id }, data });
     else await tx.trainingSession.create({ data: { id: item.id, clubId, scopeType: "coachGroup", scopeKey, scopeId: groupId, ...data } });
     const enrolled = new Set(previous?.players.map((p) => p.playerId) ?? []);
-    await tx.trainingSessionPlayer.createMany({ data: players.filter((p) => !enrolled.has(p.id)).map((p) => ({ trainingSessionId: item.id, playerId: p.id, playerName: p.fullName, teamGroup: p.teamGroup })), skipDuplicates: true });
+    await tx.trainingSessionPlayer.createMany({ data: players.filter((p) => !enrolled.has(p.id) && isEligibleForMembership(p, item.date, item.trainingTime, scopeKey)).map((p) => ({ trainingSessionId: item.id, playerId: p.id, playerName: p.fullName, teamGroup: p.teamGroup })), skipDuplicates: true });
   }
   const retained = new Set(trainings.map((t) => t.id));
   for (const removed of existing) {

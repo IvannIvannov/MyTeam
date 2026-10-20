@@ -5,6 +5,7 @@ import { getGoogleServiceAccountToken } from "@/lib/googleAuth";
 import { randomBytes } from "crypto";
 import { normalizeToMonthStart } from "@/lib/paymentStatus";
 import { parsePaymentAmount } from "@/lib/paymentAmount";
+import { parseAttendanceStartDate } from "@/lib/attendanceStartDate";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -19,6 +20,7 @@ export type ParsedPlayerRow = {
   birthDateIso: string | null;
   teamGroup: number | null;
   jerseyNumber: string | null;
+  attendanceStartedAtIso?: string | null;
   warning?: string;
 };
 
@@ -56,6 +58,7 @@ function parseSheetRows(values: string[][]): { rows: ParsedPlayerRow[]; error?: 
   const nameIndex = findColumnIndex(headers, NAME_CANDIDATES);
   const bornIndex = findColumnIndex(headers, BORN_CANDIDATES);
   const kitIndex = findColumnIndex(headers, KIT_CANDIDATES);
+  const startIndex = findColumnIndex(headers, ["начална дата на участие", "attendance start", "attendance_started_at"]);
 
   if (nameIndex < 0) {
     return { rows: [], error: `Не е намерена колона "Име, фамилия". Намерени колони: ${headers.join(", ")}` };
@@ -74,6 +77,12 @@ function parseSheetRows(values: string[][]): { rows: ParsedPlayerRow[]; error?: 
     const kitRaw = kitIndex >= 0 ? String(row[kitIndex] ?? "").trim() : "";
 
     const birthDate = parseBirthDate(bornRaw);
+    let attendanceStartedAt: Date | null;
+    try {
+      attendanceStartedAt = parseAttendanceStartDate(startIndex >= 0 ? String(row[startIndex] ?? "") : "");
+    } catch (error) {
+      return { rows: [], error: `Ред ${i + 1}: ${error instanceof Error ? error.message : "Невалидна начална дата"}` };
+    }
     let warning: string | undefined;
     if (!birthDate && bornRaw) {
       warning = `Невалидна дата "${bornRaw}"`;
@@ -85,6 +94,7 @@ function parseSheetRows(values: string[][]): { rows: ParsedPlayerRow[]; error?: 
       birthDateIso: birthDate ? birthDate.toISOString() : null,
       teamGroup: birthDate ? birthDate.getUTCFullYear() : null,
       jerseyNumber: kitRaw || null,
+      attendanceStartedAtIso: attendanceStartedAt?.toISOString() ?? null,
       warning,
     });
   }
@@ -118,6 +128,7 @@ async function createPlayerWithCard({
   firstBillingMonth,
   paymentAmount,
   coachGroupId,
+  attendanceStartedAt,
 }: {
   clubId: string;
   fullName: string;
@@ -127,24 +138,31 @@ async function createPlayerWithCard({
   firstBillingMonth: Date | null;
   paymentAmount: string;
   coachGroupId: string | null;
+  attendanceStartedAt: Date | null;
 }) {
   let lastError: unknown = null;
   for (let i = 0; i < 5; i++) {
     const cardCode = randomBytes(4).toString("hex").toUpperCase();
     try {
-      await prisma.player.create({
-        data: {
-          clubId,
-          fullName,
-          status: "warning",
-          birthDate: birthDate ?? undefined,
-          teamGroup: teamGroup ?? undefined,
-          jerseyNumber: jerseyNumber ?? undefined,
-          firstBillingMonth: firstBillingMonth ?? undefined,
-          paymentAmount,
-          cards: { create: { cardCode, isActive: true } },
-          ...(coachGroupId ? { coachGroups: { connect: [{ id: coachGroupId }] } } : {}),
-        },
+      await prisma.$transaction(async (tx) => {
+        const player = await tx.player.create({
+          data: {
+            clubId,
+            fullName,
+            attendanceStartedAt,
+            status: "warning",
+            birthDate: birthDate ?? undefined,
+            teamGroup: teamGroup ?? undefined,
+            jerseyNumber: jerseyNumber ?? undefined,
+            firstBillingMonth: firstBillingMonth ?? undefined,
+            paymentAmount,
+            cards: { create: { cardCode, isActive: true } },
+            ...(coachGroupId ? { coachGroups: { connect: [{ id: coachGroupId }] } } : {}),
+          },
+        });
+        if (attendanceStartedAt) {
+          await tx.attendanceMembership.updateMany({ where: { playerId: player.id, leftAt: null }, data: { joinedAt: attendanceStartedAt } });
+        }
       });
       return;
     } catch (error) {
@@ -301,6 +319,7 @@ export async function POST(request: NextRequest) {
           firstBillingMonth: resolvedFirstBillingMonth,
           paymentAmount,
           coachGroupId,
+          attendanceStartedAt: row.attendanceStartedAtIso ? new Date(row.attendanceStartedAtIso) : null,
         });
         created++;
       } catch (err) {

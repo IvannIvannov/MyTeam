@@ -403,11 +403,12 @@ export async function PATCH(
       });
       if (hasPlayerIds) {
         await tx.clubCustomTrainingGroupPlayer.deleteMany({
-          where: { groupId },
+          where: { groupId, playerId: { notIn: playerIds } },
         });
         if (playerIds.length > 0) {
           await tx.clubCustomTrainingGroupPlayer.createMany({
             data: playerIds.map((playerId) => ({ groupId, playerId })),
+            skipDuplicates: true,
           });
         }
       }

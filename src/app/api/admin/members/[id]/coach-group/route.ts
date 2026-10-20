@@ -42,7 +42,7 @@ export async function PATCH(
 
   const player = await prisma.player.findUnique({
     where: { id },
-    select: { id: true, clubId: true },
+    select: { id: true, clubId: true, coachGroups: { select: { id: true } } },
   });
 
   if (!player) {
@@ -61,7 +61,10 @@ export async function PATCH(
 
   await prisma.player.update({
     where: { id },
-    data: { coachGroups: { set: coachGroupIds.map((gid) => ({ id: gid })) } },
+    data: { coachGroups: {
+      disconnect: player.coachGroups.filter((group) => !coachGroupIds.includes(group.id)).map((group) => ({ id: group.id })),
+      connect: coachGroupIds.filter((gid) => !player.coachGroups.some((group) => group.id === gid)).map((gid) => ({ id: gid })),
+    } },
   });
 
   return NextResponse.json({ success: true, id, coachGroupIds });

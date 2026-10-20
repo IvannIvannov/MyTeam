@@ -1,5 +1,6 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
+import { isEligibleForMembership, type AttendancePlayer } from "@/lib/attendanceEligibility";
 import { isoDateToUtcMidnight, utcDateToIsoDate } from "@/lib/training";
 
 type TrainingSessionScope =
@@ -24,7 +25,7 @@ type TrainingSessionWriter = {
     findMany(args: Prisma.TrainingOptOutFindManyArgs): Promise<Array<{ playerId: string; trainingDate: Date; reasonCode: string | null; reasonText: string | null }>>;
   };
   player: {
-    findMany(args: Prisma.PlayerFindManyArgs): Promise<Array<{ id: string; fullName: string; teamGroup: number | null }>>;
+    findMany(args: Prisma.PlayerFindManyArgs): Promise<Array<{ id: string; fullName: string; teamGroup: number | null } & AttendancePlayer>>;
   };
 };
 
@@ -173,11 +174,12 @@ export async function syncFutureTrainingSessions(input: {
     });
     const optOutByPlayerId = optOutsByDate.get(date) ?? new Map();
     await input.tx.trainingSessionPlayer.deleteMany({
-      where: { trainingSessionId: session.id },
+      where: { trainingSessionId: session.id, attendanceRecorded: false, present: true, reasonCode: null, reasonText: null },
     });
     if (players.length > 0) {
       await input.tx.trainingSessionPlayer.createMany({
-        data: players.map((player) => {
+        skipDuplicates: true,
+        data: players.filter((player) => isEligibleForMembership(player, date, input.trainingDateTimes[date], scopeData.scopeKey)).map((player) => {
           const optOut = optOutByPlayerId.get(player.id);
           return {
             trainingSessionId: session.id,
@@ -212,6 +214,7 @@ async function getExpectedPlayersForScope(
       id: true,
       fullName: true,
       teamGroup: true,
+      createdAt: true, attendanceStartedAt: true, attendanceMemberships: true,
     },
     orderBy: { fullName: "asc" },
   });
@@ -237,6 +240,7 @@ export async function updateTrainingSessionPlayerAttendance(input: {
     },
     data: {
       present: !input.optedOut,
+      attendanceRecorded: true,
       reasonCode: input.optedOut ? input.reasonCode ?? null : null,
       reasonText: input.optedOut ? input.reasonText ?? null : null,
     },

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
+import { isEligibleForMembership } from "@/lib/attendanceEligibility";
 import { publishMemberUpdated } from "@/lib/memberEvents";
 import { verifyAdminToken } from "@/lib/adminAuth";
 import { publishTrainingAttendanceUpdated } from "@/lib/trainingAttendanceEvents";
@@ -180,6 +181,22 @@ export async function GET(
     const dates = getDatesInMonth(month);
     if (!dates.length) return NextResponse.json({ error: "Invalid month" }, { status: 400 });
     const rows = await prisma.trainingSession.findMany({ where: { clubId: id, scopeType: "coachGroup", scopeId, status: "scheduled", trainingDate: { in: dates.map(isoDateToUtcMidnight) } }, include, orderBy: [{ trainingDate: "asc" }, { trainingTime: "asc" }, { id: "asc" }] });
+    // Repair existing future rosters too, including players registered after scheduling.
+    const members = await prisma.player.findMany({
+      where: { clubId: id, isActive: true, coachGroups: { some: { id: scopeId! } } },
+      select: { id: true, fullName: true, teamGroup: true, createdAt: true, attendanceStartedAt: true, attendanceMemberships: true, cards: { where: { isActive: true }, take: 1 } },
+    });
+    const now = new Date();
+    const localNow = new Intl.DateTimeFormat("sv-SE", { timeZone: FIXED_TIME_ZONE, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23" }).format(now).replace(" ", "T");
+    for (const entry of rows) {
+      const date = utcDateToIsoDate(entry.trainingDate);
+      if (`${date}T${entry.trainingTime ?? "00:00"}:00` < localNow) continue;
+      const missing = members.filter((member) => isEligibleForMembership(member, date, entry.trainingTime, `coach_group:${scopeId}`) && !entry.players.some((p) => p.playerId === member.id));
+      if (!missing.length) continue;
+      await prisma.trainingSessionPlayer.createMany({ data: missing.map((member) => ({ trainingSessionId: entry.id, playerId: member.id, playerName: member.fullName, teamGroup: member.teamGroup })), skipDuplicates: true });
+      const refreshed = await prisma.trainingSession.findFirst({ where: { id: entry.id }, include });
+      if (refreshed) entry.players = refreshed.players;
+    }
     const attendanceStats = (players: { playerId: string | null; present: boolean }[]) => {
       const roster = players.filter((player) => player.playerId);
       const attending = roster.filter((player) => player.present).length;
@@ -191,7 +208,7 @@ export async function GET(
       return { date, weekday: getWeekdayMondayFirst(date, FIXED_TIME_ZONE), trainingTime: sessions[0]?.trainingTime ?? null, stats, sessions };
     });
     const requestedDate = request.nextUrl.searchParams.get("date");
-    const row = selected ?? rows.find((entry) => utcDateToIsoDate(entry.trainingDate) === requestedDate) ?? rows[0];
+    const row = (selected ? rows.find((entry) => entry.id === selected.id) ?? selected : undefined) ?? rows.find((entry) => utcDateToIsoDate(entry.trainingDate) === requestedDate) ?? rows[0];
     if (!row) return NextResponse.json({ coachGroupId: scopeId, trainingDate: "", players: [], stats: { total: 0, attending: 0, optedOut: 0 }, upcomingDates });
     const field = row.trainingFieldId ? await prisma.field.findFirst({ where: { id: row.trainingFieldId, clubId: id }, select: { id: true, name: true, fieldType: true, pieces: { select: { id: true, name: true }, orderBy: { sortOrder: "asc" } } } }) : null;
     const players = row.players.filter((p) => p.playerId).map((p) => ({ id: p.playerId, fullName: p.playerName, teamGroup: p.teamGroup, cardCode: p.player?.cards[0]?.cardCode ?? null, optedOut: !p.present }));
@@ -502,6 +519,9 @@ export async function GET(
       id: true,
       fullName: true,
       teamGroup: true,
+      createdAt: true,
+      attendanceStartedAt: true,
+      attendanceMemberships: true,
       cards: {
         where: { isActive: true },
         orderBy: { createdAt: "desc" },
@@ -550,15 +570,19 @@ export async function GET(
 
   const optedOutCountByDate = new Map<string, number>();
   const selectedDateOptedOutSet = new Set<string>();
+  const eligiblePlayersOnDate = (date: string) => players.filter((player) => isEligibleForMembership(
+    player, date, storedSessionByDate.get(date)?.trainingTime ?? resolvedTrainingDateTimes[date] ?? resolvedDefaultTrainingTime, scopeKey,
+  ));
   for (const item of allOptOuts) {
     const dateIso = utcDateToIsoDate(item.trainingDate);
+    if (!eligiblePlayersOnDate(dateIso).some((player) => player.id === item.playerId)) continue;
     optedOutCountByDate.set(dateIso, (optedOutCountByDate.get(dateIso) ?? 0) + 1);
     if (dateIso === trainingDate) {
       selectedDateOptedOutSet.add(item.playerId);
     }
   }
 
-  const playersWithStatus = players.map((player) => ({
+  const playersWithStatus = eligiblePlayersOnDate(trainingDate).map((player) => ({
     id: player.id,
     fullName: player.fullName,
     teamGroup: player.teamGroup,
@@ -593,9 +617,9 @@ export async function GET(
         weekday: getWeekdayMondayFirst(date, FIXED_TIME_ZONE),
         trainingTime: storedSessionByDate.get(date)?.trainingTime ?? resolvedTrainingDateTimes[date] ?? resolvedDefaultTrainingTime,
         stats: {
-          total: totalPlayers,
+          total: eligiblePlayersOnDate(date).length,
           optedOut: optedOutCountByDate.get(date) ?? 0,
-          attending: Math.max(0, totalPlayers - (optedOutCountByDate.get(date) ?? 0)),
+          attending: Math.max(0, eligiblePlayersOnDate(date).length - (optedOutCountByDate.get(date) ?? 0)),
         },
       })),
     });
