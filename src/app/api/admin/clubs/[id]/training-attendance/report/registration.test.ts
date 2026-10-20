@@ -108,4 +108,22 @@ describe("attendance eligibility from player registration", () => {
     expect(data.players[0].attendance["2026-10-02"]).toBeUndefined();
     expect(data.players[0].attendance["2026-10-21"].present).toBe(false);
   });
+
+  it.each([
+    { workflow: "calendar", weekly: false }, { workflow: "training_credits", weekly: false },
+    { workflow: "calendar", weekly: true }, { workflow: "training_credits", weekly: true },
+  ])("does not borrow eligibility from a group with a different schedule ($workflow, weekly=$weekly)", async ({ workflow, weekly }) => {
+    mocks.club.mockResolvedValue({ id: "club-1", paymentWorkflow: workflow, trainingGroupMode: "custom_group", trainingDates: [], trainingWeekdays: [] });
+    mocks.player.mockResolvedValue({ ...newPlayer, createdAt: new Date("2026-01-01T00:00:00Z"), attendanceMemberships: [
+      { scopeKey: "custom_group:former", joinedAt: null, leftAt: new Date("2026-10-10T12:00:00Z") },
+      { scopeKey: "custom_group:current", joinedAt: null, leftAt: null },
+    ] });
+    mocks.customGroups.mockResolvedValue([
+      { id: "former", trainingDates: weekly ? [] : ["2026-10-15"], trainingWeekdays: weekly ? [4] : [] },
+      { id: "current", trainingDates: weekly ? [] : ["2026-10-16"], trainingWeekdays: weekly ? [5] : [] },
+    ]);
+    const data = await report("playerId=new-player");
+    expect(data.players[0].attendance["2026-10-15"]).toBeUndefined();
+    expect(data.players[0].attendance["2026-10-16"].present).toBe(workflow === "calendar");
+  });
 });

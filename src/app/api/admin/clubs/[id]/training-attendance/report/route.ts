@@ -416,6 +416,10 @@ export async function GET(
         })) })),
       });
     }
+    const fallbackSchedules = (playerCustomGroups.length ? playerCustomGroups : [customTrainingGroup ?? trainingGroup ?? trainingGroupOverride ?? groupSchedule ?? club])
+      .map((schedule) => ({ schedule, dates: new Set(getTrainingDatesInRange({
+        from, to, trainingDates: schedule.trainingDates ?? [], trainingWeekdays: schedule.trainingWeekdays ?? [],
+      })) }));
     return NextResponse.json({
       trainingDates: reportTrainingDates,
       players: players.map((p) => ({
@@ -427,8 +431,8 @@ export async function GET(
             if (optOutMap.get(p.id)?.has(d)) return true;
             const sessions = storedSessions.filter((s) => utcDateToIsoDate(s.trainingDate) === d);
             if (sessions.length) return sessions.some((s) => isEligibleForMembership(p, d, s.trainingTime, s.scopeKey ?? scopeKey, s.players.find(r => r.playerId === p.id)?.attendanceRecorded));
-            const schedules = playerCustomGroups.length ? playerCustomGroups : [customTrainingGroup ?? trainingGroup ?? trainingGroupOverride ?? groupSchedule ?? club];
-            return schedules.some((schedule) => {
+            return fallbackSchedules.some(({ schedule, dates }) => {
+              if (!dates.has(d)) return false;
               const times = schedule.trainingDateTimes as Record<string, string> | null;
               const key = "id" in schedule && playerCustomGroups.length ? `custom_group:${schedule.id}` : scopeKey;
               return isEligibleForMembership(p, d, times?.[d] ?? schedule.trainingTime, key);
