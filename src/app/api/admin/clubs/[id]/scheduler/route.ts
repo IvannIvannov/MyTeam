@@ -1,3 +1,4 @@
+import { TRAINING_SELECTION_WINDOW_DAYS } from "@/lib/trainingScheduleWindow";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { verifyAdminToken } from "@/lib/adminAuth";
@@ -31,7 +32,7 @@ import { filterCancelledTrainingDatesForScope, syncFutureTrainingSessions } from
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 const FIXED_TIME_ZONE = "Europe/Sofia";
-const TRAINING_SELECTION_WINDOW_DAYS = 30;
+
 
 function parseTeamGroupValue(raw: unknown): number | null {
   if (raw === null || raw === undefined || String(raw).trim() === "") {

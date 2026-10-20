@@ -1,10 +1,15 @@
 ﻿"use client";
+import MemberMatchExtraDetails from "@/components/MemberMatchExtraDetails";
+import { matchEventTypeLabel } from "@/lib/matchEventType";
+import MemberMatchDetailsModal, { type MemberMatchDetails as MemberMatch } from "@/components/MemberMatchDetailsModal";
+import MatchAttendanceControl from "@/components/MatchAttendanceControl";
 import { getTrainingCountdownCandidates, getTrainingDateTimeMs } from "@/lib/memberScheduleCountdown";
 
 import { use, useEffect, useRef, useState, type CSSProperties } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { NotificationText } from "@/components/NotificationText";
 import MemberTrainingSessions from "@/components/MemberTrainingSessions";
+import TrainingCheckInPicker from "@/components/TrainingCheckInPicker";
 import { uploadImage } from "@/lib/uploadImage";
 import { extractUploadPathFromCloudinaryUrl } from "@/lib/cloudinaryImagePath";
 import { getCompatiblePushSubscription } from "@/lib/push/browser";
@@ -117,16 +122,7 @@ interface IrisOnlinePayment {
   qrUrl: string;
 }
 
-interface MemberMatch {
-  id: string;
-  opponent: string;
-  location: string;
-  matchDate: string;
-  matchTime: string;
-  isHome: boolean;
-  durationMinutes: number | null;
-  teamGroups: number[];
-}
+
 
 type TrainingOptOutReasonCode = "injury" | "sick" | "other";
 
@@ -422,6 +418,7 @@ export default function MemberCardPage({
   const [paymentError, setPaymentError] = useState<string | null>(null);
   const [paymentTrainingCredits, setPaymentTrainingCredits] = useState("");
   const [trainingCreditLoading, setTrainingCreditLoading] = useState(false);
+  const [trainingCheckInOpen, setTrainingCheckInOpen] = useState(false);
   const [trainingCreditError, setTrainingCreditError] = useState<string | null>(null);
   const [trainingCreditSuccess, setTrainingCreditSuccess] = useState<string | null>(null);
   const [pauseModalOpen, setPauseModalOpen] = useState(false);
@@ -547,6 +544,7 @@ export default function MemberCardPage({
         date: match.matchDate,
         time: match.matchTime?.trim() || null,
         opponent: match.opponent,
+        eventLabel: matchEventTypeLabel(match.eventType),
         targetMs: getTrainingDateTimeMs(match.matchDate, match.matchTime),
       })),
     ]
@@ -837,6 +835,7 @@ export default function MemberCardPage({
       if (res.ok) {
         const data = await res.json() as { matches?: MemberMatch[] };
         setMemberMatches(data.matches ?? []);
+        setMatchDetailsMatch((current) => current ? data.matches?.find((match) => match.id === current.id) ?? null : null);
       }
     } catch {
       // non-critical — calendar still shows trainings
@@ -1527,7 +1526,7 @@ export default function MemberCardPage({
     }
   };
 
-  const handleTrainingCreditCheckIn = async () => {
+  const handleTrainingCreditCheckIn = async (trainingSessionId: string) => {
     if (!member || trainingCreditLoading) return;
     setTrainingCreditLoading(true);
     setTrainingCreditError(null);
@@ -1535,6 +1534,8 @@ export default function MemberCardPage({
     try {
       const response = await fetch(`/api/members/${normalizedCardCode}/training-credit/check-in`, {
         method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ trainingSessionId }),
       });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) {
@@ -1544,6 +1545,7 @@ export default function MemberCardPage({
             : "Грешка при чекиране на тренировка",
         );
       }
+      void fetchTrainingDays();
       const refreshed = await fetch(`/api/members/${normalizedCardCode}`, { cache: "no-store" });
       if (refreshed.ok) {
         setMember((await refreshed.json()) as MemberProfile);
@@ -1566,6 +1568,7 @@ export default function MemberCardPage({
       );
     } catch (e) {
       setTrainingCreditError(e instanceof Error ? e.message : "Възникна грешка");
+      throw e;
     } finally {
       setTrainingCreditLoading(false);
     }
@@ -2307,6 +2310,7 @@ export default function MemberCardPage({
         </div>}
 
         {/* Below card buttons */}
+        {trainingCheckInOpen && <TrainingCheckInPicker cardCode={normalizedCardCode} onClose={() => setTrainingCheckInOpen(false)} onConfirm={handleTrainingCreditCheckIn} />}
         <div className="below-card">
           {canManagePayments && (<>
             <>
@@ -2320,7 +2324,7 @@ export default function MemberCardPage({
               {isTrainingCreditBasedPayment && (
                 <button
                   className="add-btn member-action-btn training-credit-btn"
-                  onClick={handleTrainingCreditCheckIn}
+                  onClick={() => setTrainingCheckInOpen(true)}
                   disabled={
                     trainingCreditLoading ||
                     remainingTrainingCredits <= 0 ||
@@ -2404,7 +2408,7 @@ export default function MemberCardPage({
           ) : nextScheduleEvent && nextScheduleCountdown ? (
             <div className={`training-next-card${nextScheduleEvent.type === "match" ? " training-next-card--match" : ""}`}>
               <p className="training-next-title">
-                {nextScheduleEvent.type === "match" ? "Следващ мач" : "Следваща тренировка"}: {formatIsoDateForBgDisplay(nextScheduleEvent.date)}
+                {nextScheduleEvent.type === "match" ? nextScheduleEvent.eventLabel : "Следваща тренировка"}: {formatIsoDateForBgDisplay(nextScheduleEvent.date)}
                 {nextScheduleEvent.time ? ` ${nextScheduleEvent.time}` : ""}
                 {nextScheduleEvent.type === "match" && nextScheduleEvent.opponent ? ` срещу ${nextScheduleEvent.opponent}` : ""}
               </p>
@@ -2867,10 +2871,11 @@ export default function MemberCardPage({
                                         setMatchDetailsMatch(dayMatches[0]!);
                                         setMatchDetailsPopupOpen(true);
                                       }}
-                                      aria-label={`Мач: ${dayMatches[0]!.opponent}, ${new Date(`${cellDate}T12:00:00.000Z`).toLocaleDateString("bg-BG", { day: "2-digit", month: "2-digit" })}`}
+                                      aria-label={`${matchEventTypeLabel(dayMatches[0]!.eventType)}: ${dayMatches[0]!.opponent}, ${new Date(`${cellDate}T12:00:00.000Z`).toLocaleDateString("bg-BG", { day: "2-digit", month: "2-digit" })}`}
                                     >
                                       <span className="training-calendar-day-number">{dayNumber}</span>
-                                      <span className="training-calendar-time">{dayMatches[0]!.matchTime}</span>
+                                      <span className="training-calendar-time">{matchEventTypeLabel(dayMatches[0]!.eventType)} · {dayMatches[0]!.matchTime}</span>
+                                      {dayMatches.length > 1 && <span className="training-calendar-time">+{dayMatches.length - 1} събития</span>}
                                     </button>
                                   );
                                 }
@@ -2966,7 +2971,7 @@ export default function MemberCardPage({
                       )}
                       {trainingDayPopupTab === "training" ? (
                         trainingDetailsItem.sessions.some((s) => s.id) ? (
-                          <MemberTrainingSessions key={trainingDetailsItem.date} date={trainingDetailsItem.date} sessions={trainingDetailsItem.sessions} cardCode={normalizedCardCode} onUpdated={fetchTrainingDays} />
+                          <MemberTrainingSessions key={trainingDetailsItem.date} date={trainingDetailsItem.date} sessions={trainingDetailsItem.sessions} cardCode={normalizedCardCode} onUpdated={fetchTrainingDays} attendanceEnabled={!isTrainingCreditBasedPayment} />
                         ) : (
                         <>
                           <div className="training-attendance-info-card">
@@ -3153,7 +3158,7 @@ export default function MemberCardPage({
                                     )}
                                   </div>
                                 );
-                              })() : (
+                              })() : !isTrainingCreditBasedPayment && (
                                 <div className="training-attendance-buttons" style={{ marginTop: 8 }}>
                                   <button
                                     className={`pm-btn training-attend-btn${!trainingDetailsItem.optedOut ? " training-btn-selected" : ""}`}
@@ -3211,7 +3216,7 @@ export default function MemberCardPage({
                           )}
                           {trainingDetailsItem.sessions.length === 1 ? (
                             <>
-                              <p className="training-attendance-choice-label">Заявка</p>
+                              {(trainingDetailsItem.limitedEvent || !isTrainingCreditBasedPayment) && <p className="training-attendance-choice-label">Заявка</p>}
                               {trainingDetailsItem.limitedEvent ? (
                                 <div className="training-attendance-buttons" style={{ flexDirection: "column", gap: 10 }}>
                                   {registerError && registerSavingEventId === trainingDetailsItem.limitedEvent.id && (
@@ -3302,7 +3307,7 @@ export default function MemberCardPage({
                                     </button>
                                   )}
                                 </div>
-                              ) : (
+                              ) : !isTrainingCreditBasedPayment && (
                                 <div className="training-attendance-buttons">
                                   <button
                                     className={`pm-btn training-attend-btn${!trainingDetailsItem.optedOut ? " training-btn-selected" : ""}`}
@@ -3353,12 +3358,13 @@ export default function MemberCardPage({
                           {trainingDetailsMatches.map((match) => (
                             <div key={match.id} className="member-day-match-card">
                               <div className="member-day-match-card-header">
-                                <span className="member-day-match-opponent">{match.opponent}</span>
+                                <span className="member-day-match-opponent">{matchEventTypeLabel(match.eventType)} · {match.opponent}</span>
                                 <span className={`match-details-badge${match.isHome ? " match-details-badge--home" : " match-details-badge--away"}`}>
                                   {match.isHome ? "Домакин" : "Гост"}
                                 </span>
                               </div>
                               <div className="match-details-body">
+                                <MemberMatchExtraDetails category={match.category} description={match.description} />
                                 <div className="match-details-row">
                                   <span className="match-details-label">Дата</span>
                                   <span className="match-details-value">
@@ -3384,6 +3390,7 @@ export default function MemberCardPage({
                                   </div>
                                 )}
                               </div>
+                              {match.attendanceEnabled && <MatchAttendanceControl attendance={match} endpoint={`/api/members/${normalizedCardCode}/matches/${match.id}/attendance`} onSaved={fetchMemberMatches} />}
                             </div>
                           ))}
                         </div>
@@ -3415,53 +3422,14 @@ export default function MemberCardPage({
         )}
 
         {matchDetailsPopupOpen && matchDetailsMatch && (
-          <div
-            className="pm-overlay"
-            onClick={() => setMatchDetailsPopupOpen(false)}
-          >
-            <div className="pm-modal member-match-details-popup" onClick={(e) => e.stopPropagation()}>
-              <button className="pm-close" onClick={() => setMatchDetailsPopupOpen(false)}>
-                <XIcon size={16} />
-              </button>
-              <div className="pm-header">
-                <h2 className="pm-title">Мач</h2>
-              </div>
-              <p className="match-details-date">
-                {new Date(`${matchDetailsMatch.matchDate}T12:00:00.000Z`).toLocaleDateString("bg-BG", {
-                  weekday: "long",
-                  day: "2-digit",
-                  month: "long",
-                  year: "numeric",
-                })}
-              </p>
-              <div className="match-details-body">
-                <div className="match-details-row">
-                  <span className="match-details-label">Противник</span>
-                  <span className="match-details-value">{matchDetailsMatch.opponent}</span>
-                </div>
-                <div className="match-details-row">
-                  <span className="match-details-label">Час</span>
-                  <span className="match-details-value">{matchDetailsMatch.matchTime}</span>
-                </div>
-                <div className="match-details-row">
-                  <span className="match-details-label">Място</span>
-                  <span className="match-details-value">{matchDetailsMatch.location}</span>
-                </div>
-                <div className="match-details-row">
-                  <span className="match-details-label">Домакин/Гост</span>
-                  <span className={`match-details-badge${matchDetailsMatch.isHome ? " match-details-badge--home" : " match-details-badge--away"}`}>
-                    {matchDetailsMatch.isHome ? "Домакин" : "Гост"}
-                  </span>
-                </div>
-                {matchDetailsMatch.durationMinutes && (
-                  <div className="match-details-row">
-                    <span className="match-details-label">Продължителност</span>
-                    <span className="match-details-value">{matchDetailsMatch.durationMinutes} мин</span>
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
+          <MemberMatchDetailsModal
+            match={matchDetailsMatch}
+            matches={memberMatches.filter((match) => match.matchDate === matchDetailsMatch.matchDate)}
+            cardCode={normalizedCardCode}
+            onSelect={setMatchDetailsMatch}
+            onClose={() => setMatchDetailsPopupOpen(false)}
+            onSaved={fetchMemberMatches}
+          />
         )}
 
         {trainingConfirmModalOpen && trainingConfirmAction && trainingDetailsItem && (

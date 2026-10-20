@@ -9,6 +9,7 @@ import {
 } from "@/lib/training";
 import { isEligibleForMembership, type AttendancePlayer } from "@/lib/attendanceEligibility";
 import { getTrainingSessionScopeKey } from "@/lib/trainingSessions";
+import { trainingRequiresCheckIn } from "@/lib/trainingAttendanceDefaults";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -167,6 +168,7 @@ export async function GET(
         trainingDates: true,
         trainingWeekdays: true, trainingTime: true, trainingDateTimes: true,
         trainingGroupMode: true,
+        paymentWorkflow: true,
       },
     });
     if (!club) {
@@ -410,7 +412,7 @@ export async function GET(
         trainingDates: columns.map((c) => c.key),
         players: players.map((p) => ({ ...p, attendance: Object.fromEntries(columns.filter(({ session }) => isEligibleForMembership(p, utcDateToIsoDate(session.trainingDate), session.trainingTime, session.scopeKey ?? scopeKey, session.players.find(r => r.playerId === p.id)?.attendanceRecorded)).map(({ key, session }) => {
           const row = session.players.find((r) => r.playerId === p.id);
-          return [key, { present: row?.present ?? true, reasonCode: row?.present ? null : row?.reasonCode ?? null }];
+          return [key, { present: row?.present ?? !trainingRequiresCheckIn(club.paymentWorkflow), reasonCode: row?.present ? null : row?.reasonCode ?? null }];
         })) })),
       });
     }
@@ -447,7 +449,7 @@ export async function GET(
             return [
               d,
               {
-                present: !optedOut,
+                present: !optedOut && !trainingRequiresCheckIn(club.paymentWorkflow),
                 reasonCode: optedOut ? (byDate?.get(d) ?? null) : null,
               },
             ];

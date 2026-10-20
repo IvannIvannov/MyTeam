@@ -122,7 +122,7 @@ export async function POST(request: NextRequest) {
     const hasPaymentAmount = Object.prototype.hasOwnProperty.call(body, "paymentAmount");
     const paymentAmount = hasPaymentAmount
       ? parsePaymentAmount(body.paymentAmount)
-      : club.defaultPaymentAmount.toFixed(2);
+      : "0.00";
     if (paymentAmount === null) {
       return NextResponse.json(
         { error: "Invalid paymentAmount. Use a non-negative amount with up to 2 decimals." },
@@ -400,6 +400,8 @@ export async function GET(request: NextRequest) {
             id: true,
             paidFor: true,
             paidAt: true,
+            amount: true,
+            currency: true,
           },
           orderBy: {
             paidAt: "desc",

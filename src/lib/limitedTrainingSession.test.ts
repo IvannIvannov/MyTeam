@@ -1,12 +1,18 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { setLimitedSessionAttendance } from "./limitedTrainingSession";
-const mocks = vi.hoisted(() => ({ player: { findMany: vi.fn() }, trainingSession: { findFirst: vi.fn() }, trainingSessionPlayer: { createMany: vi.fn(), updateMany: vi.fn() } }));
+const mocks = vi.hoisted(() => ({ club: { findUniqueOrThrow: vi.fn() }, player: { findMany: vi.fn() }, trainingSession: { findFirst: vi.fn() }, trainingSessionPlayer: { createMany: vi.fn(), updateMany: vi.fn() } }));
 vi.mock("@/lib/db", () => ({ prisma: mocks }));
 const groupId = "10000000-0000-4000-8000-000000000001";
 const firstId = "10000000-0000-4000-8000-000000000002";
 const secondId = "10000000-0000-4000-8000-000000000003";
 describe("limited places and per-session attendance", () => {
-  beforeEach(() => { vi.clearAllMocks(); mocks.player.findMany.mockResolvedValue([{ id: "player", fullName: "Player", teamGroup: 2015 }]); mocks.trainingSession.findFirst.mockResolvedValue({ id: firstId }); });
+  beforeEach(() => { vi.clearAllMocks(); mocks.club.findUniqueOrThrow.mockResolvedValue({ paymentWorkflow: "calendar_month" }); mocks.player.findMany.mockResolvedValue([{ id: "player", fullName: "Player", teamGroup: 2015 }]); mocks.trainingSession.findFirst.mockResolvedValue({ id: firstId }); });
+  it.each(["training_credits", "training_credits_30_days"])("keeps confirmed reservations separate from attendance for %s", async (paymentWorkflow) => {
+    mocks.club.findUniqueOrThrow.mockResolvedValue({ paymentWorkflow });
+    await setLimitedSessionAttendance("club", `coach_group:${groupId}:session:${secondId}`, ["player"], true);
+    expect(mocks.trainingSessionPlayer.createMany).toHaveBeenCalledWith({ data: [expect.objectContaining({ present: false })], skipDuplicates: true });
+    expect(mocks.trainingSessionPlayer.updateMany).not.toHaveBeenCalled();
+  });
   it("enrols a newly added member in the specific session without touching other same-day sessions", async () => {
     expect(await setLimitedSessionAttendance("club", `coach_group:${groupId}:session:${secondId}`, ["player"], true)).toBe(true);
     expect(mocks.trainingSessionPlayer.createMany).toHaveBeenCalledWith({ data: [expect.objectContaining({ trainingSessionId: secondId, playerId: "player" })], skipDuplicates: true });

@@ -1,8 +1,11 @@
+import { isMatchCategory } from "@/lib/matchCategory";
+import { isMatchEventType } from "@/lib/matchEventType";
+import { matchPlayerWhere } from "@/lib/matchAttendanceRules";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { verifyAdminToken } from "@/lib/adminAuth";
 import { isIsoDate, isValidTrainingTime, getTodayIsoDateInTimeZone } from "@/lib/training";
-import { checkAwayMatchTrainingConflict } from "@/lib/trainingFieldConflicts";
+import { getMatchOverlapWarnings } from "@/lib/matchConflicts";
 import { sendMatchScheduleNotifications } from "@/lib/push/matchScheduleNotifications";
 
 export const runtime = "nodejs";
@@ -51,13 +54,15 @@ export async function GET(
     select: {
       id: true,
       customGroupId: true,
-      opponent: true,
+      description: true, category: true, eventType: true, opponent: true,
       location: true,
       matchDate: true,
       matchTime: true,
       durationMinutes: true,
       isHome: true,
       teamGroups: true,
+      homeScore: true,
+      awayScore: true,
     },
   });
 
@@ -77,6 +82,14 @@ export async function POST(
   if (!club) return NextResponse.json({ error: "Club not found" }, { status: 404 });
 
   const body = await request.json().catch(() => ({})) as Record<string, unknown>;
+
+  if (!isMatchCategory(body.category)) return NextResponse.json({ error: "Изберете Контрола или Официален." }, { status: 400 });
+  if (typeof body.description !== "undefined" && typeof body.description !== "string") return NextResponse.json({ error: "Невалидно описание." }, { status: 400 });
+  const description = String(body.description ?? "").trim();
+  if (description.length > 2000) return NextResponse.json({ error: "Описанието е твърде дълго (максимум 2000 знака)." }, { status: 400 });
+
+  const eventType = body.eventType === undefined ? "match" : body.eventType;
+  if (!isMatchEventType(eventType)) return NextResponse.json({ error: "Невалиден вид събитие." }, { status: 400 });
 
   const opponent = String(body.opponent ?? "").trim();
   if (opponent.length > 200) return NextResponse.json({ error: "Съперник е твърде дълъг." }, { status: 400 });
@@ -101,14 +114,13 @@ export async function POST(
   const customGroupIdRaw = typeof body.customGroupId === "string" ? body.customGroupId.trim() : null;
   const customGroupId = customGroupIdRaw || null;
 
-  let matchConflictWarning: string | null = null;
-  const conflict = await checkAwayMatchTrainingConflict({ clubId: id, matchDate, matchTime, durationMinutes, teamGroups, customGroupId, isHome });
-  if (conflict.blocking) return NextResponse.json({ error: conflict.blocking }, { status: 400 });
-  matchConflictWarning = conflict.warning;
+  const warnings = await getMatchOverlapWarnings({ clubId: id, matchDate, matchTime, durationMinutes, isHome });
+  const matchConflictWarning = warnings.length ? warnings.join("\n") : null;
 
+  const roster = await prisma.player.findMany({ where: matchPlayerWhere({ clubId: id, customGroupId, teamGroups }), select: { id: true } });
   const match = await prisma.clubMatch.create({
-    data: { clubId: id, customGroupId, opponent, location, matchDate, matchTime, durationMinutes, isHome, teamGroups },
-    select: { id: true, customGroupId: true, opponent: true, location: true, matchDate: true, matchTime: true, durationMinutes: true, isHome: true, teamGroups: true },
+    data: { description, category: body.category, clubId: id, customGroupId, eventType, opponent, location, matchDate, matchTime, durationMinutes, isHome, teamGroups, attendanceEnabled: true, players: { create: roster.map((player) => ({ playerId: player.id })) } },
+    select: { id: true, customGroupId: true, description: true, category: true, eventType: true, opponent: true, location: true, matchDate: true, matchTime: true, durationMinutes: true, isHome: true, teamGroups: true },
   });
 
   let notifications = null;

@@ -4,6 +4,8 @@ interface ReportPaymentLog {
   id: string;
   paidFor: string;
   paidAt: string;
+  amount: string | null;
+  currency: string;
 }
 
 interface ReportPlayer {
@@ -11,6 +13,8 @@ interface ReportPlayer {
   fullName: string;
   teamGroup: number | null;
   paymentAmount: string | null;
+  firstBillingMonth: string | null;
+  paymentWorkflow: string;
   paymentLogs: ReportPaymentLog[];
   paymentWaivers: Array<{ waivedFor: string }>;
   isActive?: boolean;
@@ -198,6 +202,11 @@ interface TrainingWeekSessionItem {
 }
 
 interface ClubMatch {
+  description?: string;
+  category?: string | null;
+  eventType?: string;
+  homeScore: number | null;
+  awayScore: number | null;
   id: string;
   customGroupId: string | null;
   opponent: string;
@@ -223,11 +232,12 @@ interface AttendanceReportPlayer {
   id: string;
   fullName: string;
   teamGroup: number | null;
-  attendance: Record<string, { present: boolean; reasonCode: string | null }>;
+  attendance: Record<string, { present: boolean; reasonCode: string | null; reasonText?: string | null }>;
 }
 
 interface AttendanceReportData {
   trainingDates: string[];
+  events?: Record<string, { matchId: string; date: string; time: string; opponent: string }>;
   players: AttendanceReportPlayer[];
 }
 

@@ -1,3 +1,5 @@
+import { TRAINING_SELECTION_WINDOW_DAYS } from "@/lib/trainingScheduleWindow";
+import { trainingRequiresCheckIn } from "@/lib/trainingAttendanceDefaults";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { isEligibleForMembership } from "@/lib/attendanceEligibility";
@@ -20,7 +22,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const FIXED_TIME_ZONE = "Europe/Sofia";
-const TRAINING_SELECTION_WINDOW_DAYS = 30;
+
 
 function safeNormalizeTrainingTime(raw: unknown): string | null {
   try {
@@ -182,6 +184,7 @@ export async function GET(
     if (!dates.length) return NextResponse.json({ error: "Invalid month" }, { status: 400 });
     const rows = await prisma.trainingSession.findMany({ where: { clubId: id, scopeType: "coachGroup", scopeId, status: "scheduled", trainingDate: { in: dates.map(isoDateToUtcMidnight) } }, include, orderBy: [{ trainingDate: "asc" }, { trainingTime: "asc" }, { id: "asc" }] });
     // Repair existing future rosters too, including players registered after scheduling.
+    const rosterClub = await prisma.club.findUnique({ where: { id }, select: { paymentWorkflow: true } });
     const members = await prisma.player.findMany({
       where: { clubId: id, isActive: true, coachGroups: { some: { id: scopeId! } } },
       select: { id: true, fullName: true, teamGroup: true, createdAt: true, attendanceStartedAt: true, attendanceMemberships: true, cards: { where: { isActive: true }, take: 1 } },
@@ -193,7 +196,7 @@ export async function GET(
       if (`${date}T${entry.trainingTime ?? "00:00"}:00` < localNow) continue;
       const missing = members.filter((member) => isEligibleForMembership(member, date, entry.trainingTime, `coach_group:${scopeId}`) && !entry.players.some((p) => p.playerId === member.id));
       if (!missing.length) continue;
-      await prisma.trainingSessionPlayer.createMany({ data: missing.map((member) => ({ trainingSessionId: entry.id, playerId: member.id, playerName: member.fullName, teamGroup: member.teamGroup })), skipDuplicates: true });
+      await prisma.trainingSessionPlayer.createMany({ data: missing.map((member) => ({ trainingSessionId: entry.id, playerId: member.id, playerName: member.fullName, teamGroup: member.teamGroup, present: !trainingRequiresCheckIn(rosterClub?.paymentWorkflow) })), skipDuplicates: true });
       const refreshed = await prisma.trainingSession.findFirst({ where: { id: entry.id }, include });
       if (refreshed) entry.players = refreshed.players;
     }
@@ -240,6 +243,7 @@ export async function GET(
     select: {
       id: true,
       name: true,
+      paymentWorkflow: true,
       trainingDates: true,
       trainingTime: true,
       trainingDateTimes: true,
@@ -535,7 +539,7 @@ export async function GET(
   const trainingDateAsDate = isoDateToUtcMidnight(trainingDate);
   const upcomingDatesAsDate = upcomingDates.map((date) => isoDateToUtcMidnight(date));
 
-  const [allOptOuts, note, sessionForDate] = await Promise.all([
+  const [allOptOuts, note, sessionForDate, attendanceSessions] = await Promise.all([
     playerIds.length > 0 && upcomingDatesAsDate.length > 0
       ? prisma.trainingOptOut.findMany({
           where: {
@@ -566,6 +570,10 @@ export async function GET(
       where: { clubId: id, scopeKey, trainingDate: trainingDateAsDate },
       select: { status: true },
     }),
+    prisma.trainingSession.findMany({
+      where: { clubId: id, scopeKey, trainingDate: { in: upcomingDatesAsDate }, status: { not: "cancelled" } },
+      select: { trainingDate: true, players: { select: { playerId: true, present: true } } },
+    }),
   ]);
 
   const optedOutCountByDate = new Map<string, number>();
@@ -581,13 +589,22 @@ export async function GET(
       selectedDateOptedOutSet.add(item.playerId);
     }
   }
+  // Session attendance is authoritative after an individual training check-in.
+  const selectedAttendance = new Map<string, boolean>();
+  for (const session of trainingRequiresCheckIn(club.paymentWorkflow) ? attendanceSessions : []) {
+    const date = utcDateToIsoDate(session.trainingDate);
+    const attendance = new Map(session.players.filter((row) => row.playerId).map((row) => [row.playerId!, row.present]));
+    const absentCount = players.filter((player) => attendance.has(player.id) ? !attendance.get(player.id) : allOptOuts.some((row) => row.playerId === player.id && utcDateToIsoDate(row.trainingDate) === date)).length;
+    optedOutCountByDate.set(date, absentCount);
+    if (date === trainingDate) for (const [playerId, present] of attendance) selectedAttendance.set(playerId, present);
+  }
 
   const playersWithStatus = eligiblePlayersOnDate(trainingDate).map((player) => ({
     id: player.id,
     fullName: player.fullName,
     teamGroup: player.teamGroup,
     cardCode: player.cards[0]?.cardCode ?? null,
-    optedOut: selectedDateOptedOutSet.has(player.id),
+    optedOut: selectedAttendance.has(player.id) ? !selectedAttendance.get(player.id) : selectedDateOptedOutSet.has(player.id),
   }));
   const totalPlayers = playersWithStatus.length;
 

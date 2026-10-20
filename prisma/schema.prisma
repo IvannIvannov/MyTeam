@@ -193,6 +193,8 @@ model CoachGroup {
   createdAt               DateTime                @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt               DateTime                @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
   club                    Club                    @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  paymentAmount           Decimal?                @map("payment_amount") @db.Decimal(10, 2)
+  billingPlayers          Player[]                @relation("PlayerBillingCoachGroup")
   players                 Player[]                @relation("PlayerCoachGroups")
   customTrainingGroups    ClubCustomTrainingGroup[]
   adminPushSubscriptions  AdminPushSubscription[]
@@ -278,15 +280,19 @@ model Player {
   club                 Club                            @relation(fields: [clubId], references: [id], onDelete: Cascade)
   pushSubscriptions    PushSubscription[]
   trainingOptOuts      TrainingOptOut[]
+  matchAttendance      ClubMatchPlayer[]
   trainingSessionRows  TrainingSessionPlayer[]
   discountUsages       PartnerDiscountUsage[]
   customTrainingGroups ClubCustomTrainingGroupPlayer[]
   coachGroups                  CoachGroup[]                    @relation("PlayerCoachGroups")
   firstBillingMonth            DateTime?                       @map("first_billing_month") @db.Timestamptz(6)
   paymentAmount                Decimal                         @default(0) @map("payment_amount") @db.Decimal(10, 2)
+  billingCoachGroupId          String?                         @map("billing_coach_group_id") @db.Uuid
+  billingCoachGroup            CoachGroup?                     @relation("PlayerBillingCoachGroup", fields: [billingCoachGroupId], references: [id], onDelete: SetNull)
   remainingTrainingCredits     Int                             @default(0) @map("remaining_training_credits")
   limitedTrainingRegistrations LimitedTrainingRegistration[]
 
+  @@index([billingCoachGroupId])
   @@index([clubId])
   @@map("players")
 }
@@ -360,6 +366,7 @@ model TrainingSession {
   trainingFieldId         String?  @map("training_field_id") @db.Uuid
   trainingFieldPieceIds   String[] @default([]) @map("training_field_piece_ids") @db.Uuid
   status                  String   @default("scheduled")
+  removedFromSchedule     Boolean  @default(false) @map("removed_from_schedule")
   occurrenceKey           String   @default("") @map("occurrence_key")
   recurrenceId            String?  @map("recurrence_id") @db.Uuid
   recurrenceDate          DateTime? @map("recurrence_date") @db.Date
@@ -383,6 +390,7 @@ model TrainingSessionPlayer {
   teamGroup         Int?            @map("team_group")
   present           Boolean         @default(true)
   attendanceRecorded Boolean        @default(false) @map("attendance_recorded")
+  creditChargedAt   DateTime?        @map("credit_charged_at") @db.Timestamptz(6)
   reasonCode        String?         @map("reason_code")
   reasonText        String?         @map("reason_text")
   createdAt         DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
@@ -397,6 +405,13 @@ model TrainingSessionPlayer {
 }
 
 model ClubMatch {
+  description String @default("")
+  category String?
+  eventType String @default("match") @map("event_type")
+  homeScore Int? @map("home_score")
+  awayScore Int? @map("away_score")
+  attendanceEnabled Boolean @default(false) @map("attendance_enabled")
+  players ClubMatchPlayer[]
   id              String                   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   clubId          String                   @map("club_id") @db.Uuid
   customGroupId   String?                  @map("custom_group_id") @db.Uuid
@@ -452,6 +467,8 @@ model PaymentLog {
   paidAt     DateTime @default(now()) @map("paid_at") @db.Timestamptz(6)
   recordedBy String   @default("admin") @map("recorded_by")
   paidFor    DateTime @map("paid_for") @db.Timestamptz(6)
+  amount     Decimal? @db.Decimal(10, 2)
+  currency   String   @default("EUR")
   player     Player   @relation(fields: [playerId], references: [id], onDelete: Cascade)
   irisPayment IrisPayment?
 
@@ -480,6 +497,7 @@ model IrisPayment {
   currency         String            @default("EUR")
   paidFor          DateTime          @map("paid_for") @db.Timestamptz(6)
   paidThrough      DateTime?         @map("paid_through") @db.Timestamptz(6)
+  quotedPaidDates  Json?             @map("quoted_paid_dates")
   trainingCredits  Int?              @map("training_credits")
   status           IrisPaymentStatus @default(WAITING)
   paymentLogId     String?           @unique @map("payment_log_id") @db.Uuid
@@ -706,4 +724,18 @@ model LimitedTrainingRegistration {
   @@index([eventId, registeredAt])
   @@index([playerId])
   @@map("limited_training_registrations")
+}
+
+model ClubMatchPlayer {
+  matchId String @map("match_id") @db.Uuid
+  playerId String @map("player_id") @db.Uuid
+  present Boolean @default(true)
+  reasonCode String? @map("reason_code")
+  reasonText String? @map("reason_text")
+  match ClubMatch @relation(fields: [matchId], references: [id], onDelete: Cascade)
+  player Player @relation(fields: [playerId], references: [id], onDelete: Cascade)
+
+  @@id([matchId, playerId])
+  @@index([playerId])
+  @@map("club_match_players")
 }

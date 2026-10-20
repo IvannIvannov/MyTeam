@@ -269,29 +269,6 @@ function overlaps(startA: number, durationA: number, startB: number, durationB: 
   return startA < startB + durationB && startB < startA + durationA;
 }
 
-function matchTeamGroupsOverlap(a: number[], b: number[]): boolean {
-  return a.length === 0 || b.length === 0 || a.some((teamGroup) => b.includes(teamGroup));
-}
-
-function matchScopesOverlap(input: {
-  nextTeamGroups: number[];
-  nextCustomGroupId?: string | null;
-  existingTeamGroups: number[];
-  existingCustomGroupId?: string | null;
-}): boolean {
-  const nextCustomGroupId = input.nextCustomGroupId ?? null;
-  const existingCustomGroupId = input.existingCustomGroupId ?? null;
-
-  if (nextCustomGroupId || existingCustomGroupId) {
-    if (nextCustomGroupId && existingCustomGroupId) {
-      return nextCustomGroupId === existingCustomGroupId;
-    }
-    return matchTeamGroupsOverlap(input.nextTeamGroups, input.existingTeamGroups);
-  }
-
-  return matchTeamGroupsOverlap(input.nextTeamGroups, input.existingTeamGroups);
-}
-
 function formatIsoDateForBgDisplay(isoDate: string): string {
   const match = isoDate.match(/^(\d{4})-(\d{2})-(\d{2})$/);
   if (!match) {
@@ -774,55 +751,4 @@ export async function getOccupiedFieldResources(input: OccupiedResourcesInput): 
   }
 
   return resources;
-}
-
-export interface MatchConflictResult {
-  blocking: string | null;
-  warning: string | null;
-}
-
-export async function checkAwayMatchTrainingConflict(input: {
-  clubId: string;
-  matchDate: string;
-  matchTime: string;
-  durationMinutes: number;
-  teamGroups: number[];
-  customGroupId?: string | null;
-  isHome?: boolean;
-  excludeMatchId?: string;
-}): Promise<MatchConflictResult> {
-  const matchStart = parseTimeToMinutes(input.matchTime);
-  if (matchStart === null) return { blocking: null, warning: null };
-
-  const { clubId, matchDate, durationMinutes, teamGroups } = input;
-
-  const existingMatches = await prisma.clubMatch.findMany({
-    where: {
-      clubId,
-      matchDate,
-      ...(input.excludeMatchId ? { id: { not: input.excludeMatchId } } : {}),
-    },
-    select: { matchTime: true, durationMinutes: true, opponent: true, teamGroups: true, customGroupId: true },
-  });
-
-  for (const match of existingMatches) {
-    const existingStart = parseTimeToMinutes(match.matchTime);
-    if (existingStart === null) continue;
-    if (overlaps(matchStart, durationMinutes, existingStart, match.durationMinutes)) {
-      const startTime = formatMinutesAsTime(existingStart);
-      const endTime = formatMinutesAsTime(existingStart + match.durationMinutes);
-      if (matchScopesOverlap({
-        nextTeamGroups: teamGroups,
-        nextCustomGroupId: input.customGroupId,
-        existingTeamGroups: match.teamGroups,
-        existingCustomGroupId: match.customGroupId,
-      })) {
-        return {
-          blocking: `Match overlaps with another match for the same team on ${formatIsoDateForBgDisplay(matchDate)} from ${startTime} to ${endTime} against ${match.opponent}.`,
-          warning: null,
-        };
-      }
-    }
-  }
-  return { blocking: null, warning: null };
 }

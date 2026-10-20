@@ -78,7 +78,15 @@ function makePayment(overrides: Record<string, unknown> = {}) {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  mocks.getIrisPaymentStatus.mockResolvedValue({ status: "CONFIRMED" });
+  mocks.getIrisPaymentStatus.mockResolvedValue({
+    status: "CONFIRMED", paymentHash: "hash-1",
+    attempts: [
+      { status: "FAILED", attemptPaymentHash: "attempt-1", payerIban: null,
+        payerBank: null, payerName: null, date: "2026-10-15T10:00:00Z" },
+      { status: "CONFIRMED", attemptPaymentHash: "attempt-2", payerIban: "iban",
+        payerBank: "bank", payerName: "payer", date: "2026-10-15T10:01:00Z" },
+    ],
+  });
   mocks.deactivateIrisPayment.mockResolvedValue(null);
   mocks.prisma.irisPayment.update.mockImplementation(async ({ data }: { data: Record<string, unknown> }) => ({
     ...makePayment(),
@@ -96,6 +104,46 @@ beforeEach(() => {
 });
 
 describe("verifyAndApplyIrisPayment link deactivation", () => {
+  it.each(["WAITING", "FAILED"])("persists reusable %s attempts without crediting or deactivating", async (status) => {
+    const payload = {
+      status, paymentHash: "hash-1",
+      attempts: [{ status, attemptPaymentHash: "attempt-1", payerIban: null,
+        payerBank: null, payerName: null, date: "2026-10-15T10:00:00Z" }],
+    };
+    mocks.prisma.irisPayment.findUnique.mockResolvedValueOnce(makePayment());
+    mocks.getIrisPaymentStatus.mockResolvedValueOnce(payload);
+
+    const result = await verifyAndApplyIrisPayment({ orderId: "order-1" });
+
+    expect(getIrisPaymentStatus).toHaveBeenCalledWith("hash-1", true);
+    expect(result.status).toBe(status);
+    expect(mocks.prisma.irisPayment.update).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ status, rawStatusPayload: payload }),
+    }));
+    expect(deactivateIrisPayment).not.toHaveBeenCalled();
+    expect(finalizeResolvedMemberPayment).not.toHaveBeenCalled();
+  });
+
+  it("stores the unit amount for each month of a multi-month online payment", async () => {
+    mocks.prisma.irisPayment.findUnique
+      .mockResolvedValueOnce(makePayment({ amount: { toString: () => "51.00" }, paidThrough: new Date("2026-10-01T00:00:00Z") }))
+      .mockResolvedValueOnce(makePayment({ status: "CONFIRMED", paymentLogId: "log-1" }));
+    await verifyAndApplyIrisPayment({ orderId: "order-1" });
+    expect(finalizeResolvedMemberPayment).toHaveBeenCalledWith(expect.objectContaining({
+      paidDates: [new Date("2026-09-01T00:00:00Z"), new Date("2026-10-01T00:00:00Z")],
+      amountPerPeriod: "25.50", currency: "EUR",
+    }));
+  });
+  it("uses exact quoted months across a waived gap and the stored checkout amount", async () => {
+    const dates = ["2026-01-01T00:00:00.000Z", "2026-03-01T00:00:00.000Z"];
+    mocks.prisma.irisPayment.findUnique
+      .mockResolvedValueOnce(makePayment({ amount: { toString: () => "170.00" }, paidFor: new Date(dates[0]), paidThrough: new Date(dates[1]), quotedPaidDates: dates }))
+      .mockResolvedValueOnce(makePayment({ status: "CONFIRMED", paymentLogId: "log-1" }));
+    await verifyAndApplyIrisPayment({ orderId: "order-1" });
+    expect(finalizeResolvedMemberPayment).toHaveBeenCalledWith(expect.objectContaining({
+      paidDates: dates.map((date) => new Date(date)), amountPerPeriod: "85.00",
+    }));
+  });
   it("deactivates a verified CONFIRMED reusable payment before finalization completes", async () => {
     mocks.prisma.irisPayment.findUnique
       .mockResolvedValueOnce(makePayment())
@@ -103,7 +151,7 @@ describe("verifyAndApplyIrisPayment link deactivation", () => {
 
     const result = await verifyAndApplyIrisPayment({ orderId: "order-1" });
 
-    expect(getIrisPaymentStatus).toHaveBeenCalledWith("hash-1");
+    expect(getIrisPaymentStatus).toHaveBeenCalledWith("hash-1", true);
     expect(deactivateIrisPayment).toHaveBeenCalledWith("hash-1");
     expect(mocks.prisma.irisPayment.update).toHaveBeenCalledWith(expect.objectContaining({
       where: { id: "iris-1" },
@@ -113,6 +161,7 @@ describe("verifyAndApplyIrisPayment link deactivation", () => {
       }),
     }));
     expect(finalizeResolvedMemberPayment).toHaveBeenCalledTimes(1);
+    expect(finalizeResolvedMemberPayment).toHaveBeenCalledWith(expect.objectContaining({ amountPerPeriod: "20.00", currency: "EUR" }));
     expect(result).toEqual(expect.objectContaining({ status: "CONFIRMED", alreadyFinalized: false }));
   });
 
@@ -125,6 +174,7 @@ describe("verifyAndApplyIrisPayment link deactivation", () => {
 
     await verifyAndApplyIrisPayment({ orderId: "order-1" });
 
+    expect(getIrisPaymentStatus).toHaveBeenCalledWith("hash-1", false);
     expect(deactivateIrisPayment).not.toHaveBeenCalled();
     expect(finalizeResolvedMemberPayment).toHaveBeenCalledTimes(1);
   });

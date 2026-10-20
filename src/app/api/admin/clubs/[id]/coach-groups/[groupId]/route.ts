@@ -1,3 +1,4 @@
+import { updateClubFees, FeeSettingsError } from "@/lib/clubFees";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { verifyAdminToken } from "@/lib/adminAuth";
@@ -78,13 +79,12 @@ export async function DELETE(
     return NextResponse.json({ error: "Coach group not found" }, { status: 404 });
   }
 
-  const result = await prisma.coachGroup.deleteMany({
-    where: { id: groupId, clubId },
-  });
-
-  if (result.count === 0) {
-    return NextResponse.json({ error: "Coach group not found" }, { status: 404 });
+  try {
+    await updateClubFees(clubId, { deleteGroupId: groupId });
+    return NextResponse.json({ success: true });
+  } catch (error) {
+    if (error instanceof FeeSettingsError) return NextResponse.json({ error: error.message, conflicts: error.conflicts }, { status: error.status });
+    console.error("Coach group deletion error", error);
+    return NextResponse.json({ error: "Грешка при изтриване" }, { status: 500 });
   }
-
-  return NextResponse.json({ success: true });
 }

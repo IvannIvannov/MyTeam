@@ -1,8 +1,9 @@
+import { TRAINING_SELECTION_WINDOW_DAYS } from "@/lib/trainingScheduleWindow";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { verifyAdminToken } from "@/lib/adminAuth";
 import { getConfiguredTrainingDates, isIsoDate, isoDateToUtcMidnight, utcDateToIsoDate } from "@/lib/training";
-import { getTrainingSessionScopeKey } from "@/lib/trainingSessions";
+import { getTrainingSessionScopeKey, removeTrainingSessionsPreservingHistory } from "@/lib/trainingSessions";
 import { sendTrainingCancellationNotifications } from "@/lib/push/trainingCancellationNotifications";
 import { parseCoachRecurrences, readCoachTrainings } from "@/lib/coachTrainingSchedule";
 import { Prisma } from "@prisma/client";
@@ -32,10 +33,9 @@ export async function DELETE(request: NextRequest, { params }: { params: Promise
         const original = await tx.trainingSession.findFirst({ where: { clubId, scopeKey: row.scopeKey, trainingDate: row.trainingDate }, orderBy: [{ createdAt: "asc" }, { id: "asc" }] });
         await tx.limitedTrainingEvent.deleteMany({ where: { clubId, OR: [{ scopeKey: `${row.scopeKey}:session:${row.id}` }, ...(original?.id === row.id ? [{ scopeKey: row.scopeKey, trainingDate: row.trainingDate }] : [])] } });
         await tx.trainingNote.deleteMany({ where: { clubId, trainingDate: row.trainingDate, scopeKey: { in: [`session:${row.id}`, `${row.scopeKey}:session:${row.id}`, ...(original?.id === row.id ? [row.scopeKey] : [])] } } });
-        // Attendance and absence reasons cascade with the session; registrations cascade with their event.
-        await tx.trainingSession.delete({ where: { id: row.id } });
+        await removeTrainingSessionsPreservingHistory(tx, { id: row.id, clubId, scopeKey: row.scopeKey });
         const rules = parseCoachRecurrences(group.trainingRecurrences ?? []).map((rule) => rule.id === row.recurrenceId ? { ...rule, excludedDates: [...new Set([...(rule.excludedDates ?? []), utcDateToIsoDate(row.recurrenceDate ?? row.trainingDate)])] } : rule);
-        const remaining = await tx.trainingSession.findMany({ where: { clubId, scopeKey: row.scopeKey }, orderBy: { trainingTime: "asc" } });
+        const remaining = await tx.trainingSession.findMany({ where: { clubId, scopeKey: row.scopeKey, removedFromSchedule: false }, orderBy: { trainingTime: "asc" } });
         const times: Record<string, string> = {};
         for (const session of remaining) times[utcDateToIsoDate(session.trainingDate)] ??= session.trainingTime ?? "";
         await tx.coachGroup.update({ where: { id: group.id }, data: { trainingDates: Object.keys(times).sort(), trainingDateTimes: times, trainingWeekdays: [], trainingRecurrences: rules as unknown as Prisma.InputJsonValue, updatedAt: new Date() } });
@@ -61,7 +61,7 @@ export async function DELETE(request: NextRequest, { params }: { params: Promise
       const override = !custom && !grouped && teamGroup !== null ? await tx.clubTrainingScheduleGroup.findFirst({ where: { clubId, teamGroups: { has: teamGroup }, trainingDates: { isEmpty: false } }, orderBy: { updatedAt: "desc" } }) : null;
       const team = !custom && !grouped && !override && teamGroup !== null ? await tx.clubTrainingGroupSchedule.findUnique({ where: { clubId_teamGroup: { clubId, teamGroup } } }) : null;
       const source = custom ?? grouped ?? override ?? team ?? club;
-      const dates = source.trainingDates.length ? source.trainingDates : getConfiguredTrainingDates({ weekdays: source.trainingWeekdays, windowDays: source.trainingWindowDays, maxDays: 30, timeZone: "Europe/Sofia" });
+      const dates = source.trainingDates.length ? source.trainingDates : getConfiguredTrainingDates({ weekdays: source.trainingWeekdays, windowDays: source.trainingWindowDays, maxDays: TRAINING_SELECTION_WINDOW_DAYS, timeZone: "Europe/Sofia" });
       const cleanDates = dates.filter((value) => value !== date);
       const removeDate = (value: unknown) => Object.fromEntries(Object.entries(value && typeof value === "object" && !Array.isArray(value) ? value : {}).filter(([key]) => key !== date));
       const data = { trainingDates: cleanDates, trainingWeekdays: [], trainingDateTimes: removeDate(source.trainingDateTimes), trainingFieldSelections: removeDate(source.trainingFieldSelections) };
@@ -72,7 +72,7 @@ export async function DELETE(request: NextRequest, { params }: { params: Promise
       else await tx.club.update({ where: { id: clubId }, data });
       await tx.limitedTrainingEvent.deleteMany({ where: { clubId, scopeKey, trainingDate } });
       await tx.trainingNote.deleteMany({ where: { clubId, scopeKey, trainingDate } });
-      await tx.trainingSession.deleteMany({ where: { clubId, scopeKey, trainingDate } });
+      await removeTrainingSessionsPreservingHistory(tx, { clubId, scopeKey, trainingDate });
       const members = await tx.player.findMany({
         where: { clubId, ...(custom ? { customTrainingGroups: { some: { groupId: custom.id } } } : grouped ? { teamGroup: { in: grouped.teamGroups } } : teamGroup !== null ? { teamGroup } : {}) },
         select: { id: true, teamGroup: true, customTrainingGroups: { select: { group: { select: { trainingDates: true, trainingWeekdays: true } } } } },

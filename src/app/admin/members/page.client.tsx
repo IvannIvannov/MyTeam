@@ -1,4 +1,16 @@
 "use client";
+import MatchExtraFields from "@/components/MatchExtraFields";
+import { matchCategoryLabel } from "@/lib/matchCategory";
+import { MATCH_EVENT_TYPES, matchEventTypeLabel, type MatchEventType } from "@/lib/matchEventType";
+import MatchOverlapWarning from "@/components/MatchOverlapWarning";
+import { MatchResultFields } from "@/components/MatchResultFields";
+import { buildMatchDetailsUpdate, type MatchResultSnapshot } from "@/lib/matchDetailsUpdate";
+import { hasMatchFinished } from "@/lib/matchResult";
+import MatchAttendancePanel from "@/components/MatchAttendancePanel";
+import MatchHistoryModal from "@/components/MatchHistoryModal";
+import GroupAssignmentFeeNotice from "@/app/admin/members/_components/GroupAssignmentFeeNotice";
+import { previewGroupAssignmentFees, rebaseGroupAssignmentSelection, type GroupFeeSettings } from "@/lib/groupAssignmentFees";
+import MonthlyFeeModal from "@/app/admin/members/_components/MonthlyFeeModal";
 import { mergeTrainingCalendarDates } from "@/lib/trainingCalendarDates";
 import { applyTrainingFieldToDates, toggleTrainingFieldPiece } from "@/lib/trainingFieldPicker";
 
@@ -416,7 +428,7 @@ function WeeklyGrid({
                       </span>
                       {session.eventType === "match" && (
                         <span className="amp-training-week-session-row-meta">
-                          {session.isHome ? "Домакин" : "Гост"}
+                          {session.label} · {session.isHome ? "Домакин" : "Гост"}
                         </span>
                       )}
                       {session.eventType !== "match" && session.limitedSpots && (
@@ -707,15 +719,13 @@ function AdminMembersPageContent() {
   const [paymentWorkflowSaving, setPaymentWorkflowSaving] = useState(false);
   const [paymentWorkflowError, setPaymentWorkflowError] = useState("");
   const [paymentWorkflowSuccess, setPaymentWorkflowSuccess] = useState("");
-  const [clubDefaultPaymentAmount, setClubDefaultPaymentAmount] = useState("");
   const [paymentAmountModalOpen, setPaymentAmountModalOpen] = useState(false);
-  const [paymentAmountForm, setPaymentAmountForm] = useState("");
-  const [paymentAmountSaving, setPaymentAmountSaving] = useState(false);
-  const [paymentAmountError, setPaymentAmountError] = useState("");
-  const [paymentAmountSuccess, setPaymentAmountSuccess] = useState("");
+  const [feeAssignments, setFeeAssignments] = useState<Record<string, string[]> | undefined>();
+  const [feeDeleteGroupId, setFeeDeleteGroupId] = useState<string | undefined>();
   const [clubLogoUrl, setClubLogoUrl] = useState<string | null>(null);
   const [reportsOpen, setReportsOpen] = useState(false);
   const [attendanceDashboardOpen, setAttendanceDashboardOpen] = useState(false);
+  const [matchHistoryOpen, setMatchHistoryOpen] = useState(false);
   const [editingClub, setEditingClub] = useState<ClubOption | null>(null);
   const [clubEditForm, setClubEditForm] = useState({
     name: "",
@@ -813,11 +823,12 @@ function AdminMembersPageContent() {
   const [trainingDaysPreExistingDates, setTrainingDaysPreExistingDates] = useState<string[]>([]);
   const [trainingDaysSingleEditDate, setTrainingDaysSingleEditDate] = useState<string | null>(null);
   const [scheduleEventModalOpen, setScheduleEventModalOpen] = useState(false);
-  const [scheduleEventStep, setScheduleEventStep] = useState<"type" | "match-days" | "match-details">("type");
+  const [scheduleEventStep, setScheduleEventStep] = useState<"type" | "match-type" | "match-days" | "match-details">("type");
   const [matchEditorSaving, setMatchEditorSaving] = useState(false);
   const [matchEditorError, setMatchEditorError] = useState("");
+  const [matchEventType, setMatchEventType] = useState<MatchEventType | null>(null);
   const [matchSelectedDates, setMatchSelectedDates] = useState<string[]>([]);
-  const [matchDetailsPerDay, setMatchDetailsPerDay] = useState<Record<string, { opponent: string; location: string; time: string; duration: string; isHome: boolean | null }>>({});
+  const [matchDetailsPerDay, setMatchDetailsPerDay] = useState<Record<string, { description?: string; category?: string; opponent: string; location: string; time: string; duration: string; isHome: boolean | null }>>({});
   const [matchTeamGroups, setMatchTeamGroups] = useState<number[]>([]);
   const [matchExistingIdByDate, setMatchExistingIdByDate] = useState<Record<string, string>>({});
   const [clubMatches, setClubMatches] = useState<ClubMatch[]>([]);
@@ -825,7 +836,8 @@ function AdminMembersPageContent() {
   const [matchViewMatch, setMatchViewMatch] = useState<ClubMatch | null>(null);
   const [matchEditTarget, setMatchEditTarget] = useState<ClubMatch | null>(null);
   const [dayDetailsMatchEditOpen, setDayDetailsMatchEditOpen] = useState(false);
-  const [dayDetailsMatchEditForm, setDayDetailsMatchEditForm] = useState<{ opponent: string; location: string; matchDate: string; matchTime: string; durationMinutes: string; isHome: boolean; customGroupId: string | null }>({ opponent: "", location: "", matchDate: "", matchTime: "", durationMinutes: "90", isHome: true, customGroupId: null });
+  const dayDetailsMatchOriginalResult = useRef<MatchResultSnapshot>({ homeScore: null, awayScore: null });
+  const [dayDetailsMatchEditForm, setDayDetailsMatchEditForm] = useState<{ description: string; category: string; opponent: string; location: string; matchDate: string; matchTime: string; durationMinutes: string; isHome: boolean; customGroupId: string | null; homeScore: string; awayScore: string }>({ description: "", category: "", homeScore: "", awayScore: "", opponent: "", location: "", matchDate: "", matchTime: "", durationMinutes: "90", isHome: true, customGroupId: null });
   const [dayDetailsMatchSaving, setDayDetailsMatchSaving] = useState(false);
   const [dayDetailsMatchDeleteConfirm, setDayDetailsMatchDeleteConfirm] = useState(false);
   const [dayDetailsMatchError, setDayDetailsMatchError] = useState("");
@@ -921,10 +933,11 @@ function AdminMembersPageContent() {
   const [notifyError, setNotifyError] = useState("");
   const [notifySuccess, setNotifySuccess] = useState("");
   const [bulkCoachGroupTargetId, setBulkCoachGroupTargetId] = useState<string | null>(null);
-  const [bulkCoachGroupAllMembers, setBulkCoachGroupAllMembers] = useState<Member[]>([]);
+  const [bulkCoachGroupAllMembers, setBulkCoachGroupAllMembers] = useState<GroupFeeSettings["players"]>([]);
+  const [bulkCoachGroupFeeSettings, setBulkCoachGroupFeeSettings] = useState<GroupFeeSettings | null>(null);
+  const [bulkCoachGroupBillingChoices, setBulkCoachGroupBillingChoices] = useState<Record<string, string>>({});
   const [bulkCoachGroupLoadingMembers, setBulkCoachGroupLoadingMembers] = useState(false);
   const [bulkCoachGroupSelectedIds, setBulkCoachGroupSelectedIds] = useState<Set<string>>(new Set());
-  const [bulkCoachGroupInitialIds, setBulkCoachGroupInitialIds] = useState<Set<string>>(new Set());
   const [bulkCoachGroupSearchTerm, setBulkCoachGroupSearchTerm] = useState("");
   const [bulkCoachGroupBusy, setBulkCoachGroupBusy] = useState(false);
   const [bulkCoachGroupError, setBulkCoachGroupError] = useState("");
@@ -1150,9 +1163,8 @@ function AdminMembersPageContent() {
   };
 
   const openPaymentAmountModal = () => {
-    setPaymentAmountForm(clubDefaultPaymentAmount || "");
-    setPaymentAmountError("");
-    setPaymentAmountSuccess("");
+    setFeeAssignments(undefined);
+    setFeeDeleteGroupId(undefined);
     setPaymentAmountModalOpen(true);
   };
 
@@ -1212,12 +1224,7 @@ function AdminMembersPageContent() {
     }
   };
 
-  const closePaymentAmountModal = () => {
-    if (paymentAmountSaving) return;
-    setPaymentAmountModalOpen(false);
-    setPaymentAmountError("");
-    setPaymentAmountSuccess("");
-  };
+
 
   const openPaymentWorkflowModal = () => {
     setPaymentWorkflowDraft(clubPaymentWorkflow);
@@ -1270,47 +1277,6 @@ function AdminMembersPageContent() {
       setPaymentWorkflowError("Възникна грешка при запазване на метода за плащане.");
     } finally {
       setPaymentWorkflowSaving(false);
-    }
-  };
-
-  const handleSavePaymentAmount = async () => {
-    if (!clubId || paymentAmountSaving) return;
-
-    const normalizedPaymentAmount = paymentAmountForm.trim().replace(",", ".");
-    if (!normalizedPaymentAmount || !/^\d+(\.\d{1,2})?$/.test(normalizedPaymentAmount)) {
-      setPaymentAmountError("Въведете валидна сума с до 2 знака след десетичната запетая.");
-      return;
-    }
-
-    setPaymentAmountSaving(true);
-    setPaymentAmountError("");
-    setPaymentAmountSuccess("");
-
-    try {
-      const response = await fetch(`/api/admin/clubs/${encodeURIComponent(clubId)}/payment-amount`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ paymentAmount: normalizedPaymentAmount }),
-      });
-
-      const payload = await response.json().catch(() => ({}));
-      if (!response.ok) {
-        setPaymentAmountError(
-          typeof payload?.error === "string" && payload.error.trim()
-            ? payload.error.trim()
-            : "Неуспешно запазване на месечната такса.",
-        );
-        return;
-      }
-
-      setClubDefaultPaymentAmount(normalizedPaymentAmount);
-      setPaymentAmountSuccess("Месечната такса е обновена за клуба и всички състезатели.");
-      setMembers((prev) => prev.map((member) => ({ ...member, paymentAmount: normalizedPaymentAmount })));
-    } catch (error) {
-      console.error("Payment amount save error:", error);
-      setPaymentAmountError("Възникна грешка при запазване на месечната такса.");
-    } finally {
-      setPaymentAmountSaving(false);
     }
   };
 
@@ -2060,10 +2026,7 @@ function AdminMembersPageContent() {
                   ? "training_credits_30_days"
                 : "calendar_month",
           );
-          const defaultPaymentAmount = (selectedClub as Record<string, unknown>).defaultPaymentAmount;
-          setClubDefaultPaymentAmount(
-            defaultPaymentAmount === null || defaultPaymentAmount === undefined ? "" : String(defaultPaymentAmount),
-          );
+
 
           const logo = (selectedClub as Record<string, unknown>).imageUrl;
           if (typeof logo === "string" && logo) {
@@ -2074,7 +2037,6 @@ function AdminMembersPageContent() {
         } else {
           setClubName("Всички отбори");
           setClubBillingStatus("");
-          setClubDefaultPaymentAmount("");
           setClubLogoUrl(null);
         }
 
@@ -2145,10 +2107,7 @@ function AdminMembersPageContent() {
                 ? "training_credits_30_days"
               : "calendar_month",
         );
-        const defaultPaymentAmount = (selectedClub as Record<string, unknown> | null)?.defaultPaymentAmount;
-        setClubDefaultPaymentAmount(
-          defaultPaymentAmount === null || defaultPaymentAmount === undefined ? "" : String(defaultPaymentAmount),
-        );
+
         const logo = (selectedClub as Record<string, unknown> | null)?.imageUrl;
         if (typeof logo === "string" && logo) {
           setClubLogoUrl(logo);
@@ -2303,14 +2262,20 @@ function AdminMembersPageContent() {
   );
   const weekSessionColorOptions = useMemo(() => {
     const seen = new Map<string, string>();
+    for (const group of customTrainingGroups) {
+      if ((group.coachGroupId ?? null) === customTrainingGroupCoachScope && group.color && isCustomTrainingGroupPaletteColor(group.color)) {
+        seen.set(group.color, group.name);
+      }
+    }
     for (const s of trainingWeekSessions) {
+      if (coachGroupId) continue;
       if (s.color && isCustomTrainingGroupPaletteColor(s.color) && !seen.has(s.color)) {
         const group = customTrainingGroups.find((g) => g.color === s.color);
         seen.set(s.color, group?.name ?? "");
       }
     }
     return Array.from(seen.entries()).map(([color, label]) => ({ color, label }));
-  }, [trainingWeekSessions, customTrainingGroups]);
+  }, [trainingWeekSessions, customTrainingGroups, customTrainingGroupCoachScope, coachGroupId]);
   const noFreeCustomTrainingGroupColor = useMemo(() => {
     if (!isCustomTrainingGroupMode) return false;
     const used = new Set(
@@ -2729,6 +2694,11 @@ function AdminMembersPageContent() {
     return list;
   }, [members, notifyGroupFilter, notifySearchTerm, notifyCoachGroupFilter, coachGroupId, isCustomTrainingGroupMode, customTrainingGroups, trainingScheduleGroups]);
 
+  const bulkCoachGroupFeePreview = useMemo(() => bulkCoachGroupFeeSettings && bulkCoachGroupTargetId
+    ? previewGroupAssignmentFees(bulkCoachGroupFeeSettings, bulkCoachGroupTargetId, bulkCoachGroupSelectedIds, bulkCoachGroupBillingChoices)
+    : [], [bulkCoachGroupFeeSettings, bulkCoachGroupTargetId, bulkCoachGroupSelectedIds, bulkCoachGroupBillingChoices]);
+  const bulkCoachGroupHasFeeConflicts = bulkCoachGroupFeePreview.some((row) => row.fee.source === "conflict");
+
   const bulkCoachGroupVisibleMembers = useMemo(() => {
     let list = bulkCoachGroupAllMembers.filter((m) => m.isActive);
     if (bulkCoachGroupSearchTerm.trim()) {
@@ -2801,62 +2771,72 @@ function AdminMembersPageContent() {
   const openBulkCoachGroupModal = async (groupId: string) => {
     setBulkCoachGroupTargetId(groupId);
     setBulkCoachGroupAllMembers([]);
+    setBulkCoachGroupFeeSettings(null);
+    setBulkCoachGroupBillingChoices({});
+    setFeeAssignments(undefined);
     setBulkCoachGroupSelectedIds(new Set());
-    setBulkCoachGroupInitialIds(new Set());
     setBulkCoachGroupSearchTerm("");
     setBulkCoachGroupError("");
     setBulkCoachGroupSaved(false);
     setBulkCoachGroupBusy(false);
     setBulkCoachGroupLoadingMembers(true);
     try {
-      const res = await fetch(`/api/admin/members?clubId=${encodeURIComponent(clubId)}`);
-      const data = (await res.json().catch(() => [])) as Member[];
-      const allActive = Array.isArray(data) ? data.filter((m) => m.isActive) : [];
+      const res = await fetch(`/api/admin/clubs/${encodeURIComponent(clubId)}/payment-amount`, { cache: "no-store" });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Грешка при зареждане на таксите.");
+      const settings = data as GroupFeeSettings;
+      const allActive = settings.players.filter((m) => m.isActive);
       const alreadyIn = new Set(allActive.filter((m) => m.coachGroupIds.includes(groupId)).map((m) => m.id));
+      setBulkCoachGroupFeeSettings(settings);
       setBulkCoachGroupAllMembers(allActive);
       setBulkCoachGroupSelectedIds(new Set(alreadyIn));
-      setBulkCoachGroupInitialIds(new Set(alreadyIn));
-    } catch {
-      setBulkCoachGroupError("Грешка при зареждане на състезателите.");
+    } catch (err) {
+      setBulkCoachGroupError(err instanceof Error ? err.message : "Грешка при зареждане на състезателите.");
     } finally {
       setBulkCoachGroupLoadingMembers(false);
     }
   };
 
   const handleBulkCoachGroupSave = async () => {
-    if (!bulkCoachGroupTargetId) return;
+    if (!bulkCoachGroupTargetId || !bulkCoachGroupFeeSettings || bulkCoachGroupHasFeeConflicts) return;
     setBulkCoachGroupBusy(true);
     setBulkCoachGroupError("");
     try {
-      const toAdd = bulkCoachGroupAllMembers.filter(
-        (m) => m.isActive && bulkCoachGroupSelectedIds.has(m.id) && !bulkCoachGroupInitialIds.has(m.id)
-      );
-      const toRemove = bulkCoachGroupAllMembers.filter(
-        (m) => m.isActive && !bulkCoachGroupSelectedIds.has(m.id) && bulkCoachGroupInitialIds.has(m.id)
-      );
-      const allChanged = [...toAdd, ...toRemove];
-      if (allChanged.length === 0) {
+      if (!bulkCoachGroupFeePreview.length) {
         setBulkCoachGroupSaved(true);
         setTimeout(() => setBulkCoachGroupSaved(false), 2000);
         return;
       }
-      for (const member of allChanged) {
-        const isAdding = bulkCoachGroupSelectedIds.has(member.id);
-        const newGroupIds = isAdding
-          ? [...new Set([...(member.coachGroupIds ?? []), bulkCoachGroupTargetId])]
-          : (member.coachGroupIds ?? []).filter((id) => id !== bulkCoachGroupTargetId);
-        const res = await fetch(`/api/admin/members/${encodeURIComponent(member.id)}/coach-group`, {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ coachGroupIds: newGroupIds }),
-        });
-        if (!res.ok) {
-          const data = (await res.json().catch(() => ({}))) as { error?: string };
-          throw new Error(data.error ?? "Грешка при запазване");
+      const assignments = Object.fromEntries(bulkCoachGroupFeePreview.map((p) => [p.id, p.coachGroupIds]));
+      const billingChoices = Object.fromEntries(bulkCoachGroupFeePreview
+        .filter((p) => p.billingCoachGroupId && Object.hasOwn(bulkCoachGroupBillingChoices, p.id))
+        .map((p) => [p.id, p.billingCoachGroupId]));
+      const res = await fetch(`/api/admin/clubs/${encodeURIComponent(clubId)}/payment-amount`, {
+        method: "PATCH", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ assignments, billingChoices, expectedRevision: bulkCoachGroupFeeSettings.revision }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        if (res.status === 409) {
+          setFeeAssignments(assignments);
+          const fresh = await fetch(`/api/admin/clubs/${encodeURIComponent(clubId)}/payment-amount`, { cache: "no-store" });
+          if (fresh.ok) {
+            const settings = await fresh.json() as GroupFeeSettings;
+            setBulkCoachGroupFeeSettings(settings);
+            setBulkCoachGroupAllMembers(settings.players.filter((m) => m.isActive));
+            const selected = rebaseGroupAssignmentSelection(settings, bulkCoachGroupTargetId, assignments);
+            setBulkCoachGroupSelectedIds(selected);
+            setFeeAssignments(Object.fromEntries(previewGroupAssignmentFees(settings, bulkCoachGroupTargetId, selected, bulkCoachGroupBillingChoices).map((p) => [p.id, p.coachGroupIds])));
+            throw new Error("Нищо не е запазено. Таксите или групите са променени междувременно. Данните са обновени — прегледайте сумите и изберете група за таксата, ако е необходимо, след което натиснете „Запази“ отново. За други състезатели използвайте „Преглед на месечните такси“.");
+          }
         }
+        throw new Error(data.error ?? "Грешка при запазване");
       }
+      setBulkCoachGroupFeeSettings(data as GroupFeeSettings);
+      setBulkCoachGroupAllMembers((data as GroupFeeSettings).players.filter((m) => m.isActive));
+      setBulkCoachGroupBillingChoices({});
+      setFeeAssignments(undefined);
       setBulkCoachGroupSaved(true);
-      setBulkCoachGroupInitialIds(new Set(bulkCoachGroupSelectedIds));
       void refreshMembersList();
       setTimeout(() => setBulkCoachGroupSaved(false), 2000);
     } catch (err) {
@@ -3325,13 +3305,13 @@ function AdminMembersPageContent() {
       return;
     }
 
-    if (trainingGroupMode !== "custom_group") {
+    if (trainingGroupMode !== "custom_group" && !coachGroupId) {
       setCustomTrainingGroups([]);
       return;
     }
 
     void loadCustomTrainingGroups();
-  }, [clubId, loadCustomTrainingGroups, trainingGroupMode]);
+  }, [clubId, loadCustomTrainingGroups, trainingGroupMode, coachGroupId]);
 
   const loadCoachGroups = async (): Promise<CoachGroup[]> => {
     if (!clubId) return [];
@@ -4208,6 +4188,7 @@ function AdminMembersPageContent() {
         if (trainingDaysEditorMode === "customGroup") {
           await loadCustomTrainingGroups();
           await fetchTrainingAttendance(trainingAttendanceDate);
+          await fetchTrainingWeekSessions();
           setTrainingDaysEditorOpen(false);
         } else {
           await loadTrainingScheduleGroups();
@@ -4961,7 +4942,6 @@ function AdminMembersPageContent() {
   };
 
   const openTrainingDaysEditorForCurrentScope = async () => {
-    if (coachGroupId) { await openTrainingDaysEditor("coachGroup"); return; }
     if (trainingAttendanceView === "trainingGroups") {
       if (!selectedTrainingGroupId) {
         setTrainingAttendanceError("Изберете група.");
@@ -4970,17 +4950,18 @@ function AdminMembersPageContent() {
       await openTrainingDaysEditor(isCustomTrainingGroupMode ? "customGroup" : "trainingGroup");
       return;
     }
+    if (coachGroupId) { await openTrainingDaysEditor("coachGroup"); return; }
     await openTrainingDaysEditor("teamGroup");
   };
 
   const openSingleTrainingDayEditForCurrentScope = async (date: string) => {
     if (trainingDayDetailsTab.startsWith("coach-")) { await openTrainingDaysEditor("coachGroup", date, { groupId: trainingDayDetailsTab.slice(6, 42), sessionId: trainingDayDetailsTab.slice(43) }); return; }
-    if (coachGroupId) { await openTrainingDaysEditor("coachGroup", date); return; }
     if (trainingAttendanceView === "trainingGroups") {
       if (!selectedTrainingGroupId) return;
       await openTrainingDaysEditor(isCustomTrainingGroupMode ? "customGroup" : "trainingGroup", date);
       return;
     }
+    if (coachGroupId) { await openTrainingDaysEditor("coachGroup", date); return; }
     await openTrainingDaysEditor("teamGroup", date);
   };
 
@@ -5004,7 +4985,7 @@ function AdminMembersPageContent() {
   };
 
   const handleSaveMatch = async () => {
-    if (!clubId || matchSelectedDates.length === 0) return;
+    if (!clubId || !matchEventType || matchSelectedDates.length === 0) return;
     setMatchEditorSaving(true);
     setMatchEditorError("");
     const warnings: string[] = [];
@@ -5019,7 +5000,7 @@ function AdminMembersPageContent() {
         const res = await fetch(url, {
           method: existingId ? "PATCH" : "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ opponent: details.opponent, location: details.location, matchDate: date, matchTime: details.time, durationMinutes, isHome: details.isHome, teamGroups: matchTeamGroups, customGroupId: isCustomTrainingGroupMode ? (selectedCustomGroup?.id ?? (weekColorFilter ? (customTrainingGroups.find((g) => g.color === weekColorFilter)?.id ?? null) : null) ?? (customTrainingGroups.length === 1 ? customTrainingGroups[0].id : null)) : null }),
+          body: JSON.stringify({ description: details.description ?? "", category: details.category, eventType: matchEventType, opponent: details.opponent, location: details.location, matchDate: date, matchTime: details.time, durationMinutes, isHome: details.isHome, teamGroups: matchTeamGroups, customGroupId: isCustomTrainingGroupMode ? (selectedCustomGroup?.id ?? (weekColorFilter ? (customTrainingGroups.find((g) => g.color === weekColorFilter)?.id ?? null) : null) ?? (customTrainingGroups.length === 1 ? customTrainingGroups[0].id : null)) : null }),
         });
         const data = await res.json() as { error?: string; warning?: string };
         if (!res.ok) { setMatchEditorError(data.error ?? "Грешка при запазване."); return; }
@@ -5050,15 +5031,7 @@ function AdminMembersPageContent() {
       const res = await fetch(`/api/admin/clubs/${encodeURIComponent(clubId)}/matches/${encodeURIComponent(dayDetailsActiveMatch.id)}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          opponent: dayDetailsMatchEditForm.opponent,
-          location: dayDetailsMatchEditForm.location,
-          matchDate: dayDetailsMatchEditForm.matchDate,
-          matchTime: dayDetailsMatchEditForm.matchTime,
-          durationMinutes: Number.parseInt(dayDetailsMatchEditForm.durationMinutes || "90", 10),
-          isHome: dayDetailsMatchEditForm.isHome,
-          customGroupId: dayDetailsMatchEditForm.customGroupId,
-        }),
+        body: JSON.stringify(buildMatchDetailsUpdate(dayDetailsMatchEditForm, dayDetailsMatchOriginalResult.current, hasMatchFinished(dayDetailsActiveMatch))),
       });
       const data = await res.json() as { error?: string };
       if (!res.ok) { setDayDetailsMatchError(data.error ?? "Грешка при запазване."); return; }
@@ -5568,7 +5541,7 @@ function AdminMembersPageContent() {
 
       <div className="amp-inner">
         <div style={{ display: "flex", alignItems: "center", marginBottom: "10px" }}>
-          {(isAdmin || (isCoach && searchParams.has("coachGroupId"))) && (
+          {isAdmin && (
             <button
               className="amp-back-btn amp-btn--compact"
               onClick={() => {
@@ -5644,22 +5617,6 @@ function AdminMembersPageContent() {
             <button className="amp-add-btn" onClick={() => router.push(`/admin/members/add?clubId=${encodeURIComponent(clubId)}${coachGroupId ? `&coachGroupId=${encodeURIComponent(coachGroupId)}` : ""}`)}>
               <PlusIcon />
               Добави състезател
-            </button>
-          )}
-          {clubId && coachGroupId && (
-            <button
-              className="amp-import-sheets-btn amp-btn--compact"
-              type="button"
-              title="Управление на състезатели в групата"
-              onClick={() => openBulkCoachGroupModal(coachGroupId)}
-            >
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
-                <circle cx="9" cy="7" r="4" />
-                <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
-                <path d="M16 3.13a4 4 0 0 1 0 7.75" />
-              </svg>
-              <span>Управление на треньорска група</span>
             </button>
           )}
           {isAdmin && clubId && (
@@ -5765,6 +5722,10 @@ function AdminMembersPageContent() {
               >
                 <ClipboardListIcon />
                 <span>Присъствия</span>
+              </button>
+              <button className="amp-download-links-btn amp-scheduler-settings-btn amp-btn--compact" onClick={() => setMatchHistoryOpen(true)} type="button">
+                <CalendarIcon />
+                <span>История на мачовете</span>
               </button>
               {isAdmin && (
                 <button
@@ -6230,6 +6191,7 @@ function AdminMembersPageContent() {
           isReactivating={reactivatingMemberId === selectedMember.id}
           isDeletingPermanent={deletingPermanentMemberId === selectedMember.id}
           coachGroups={(isAdmin || isCoach) && coachGroups.length > 0 ? coachGroups : undefined}
+          onFeeConflict={(memberId, ids) => { setFeeAssignments({ [memberId]: ids }); setPaymentAmountModalOpen(true); }}
           onCoachGroupAssigned={(memberId, newCoachGroupIds) => {
             setMembers((prev) => prev.map((m) => m.id === memberId ? { ...m, coachGroupIds: newCoachGroupIds } : m));
             setSelectedMember((prev) => prev?.id === memberId ? { ...prev, coachGroupIds: newCoachGroupIds } : prev);
@@ -6332,7 +6294,7 @@ function AdminMembersPageContent() {
                 </label>
                 {!coachGroupId && (
                   <label className="amp-edit-field">
-                    <span className="amp-lbl">Месечна такса</span>
+                    <span className="amp-lbl">Лична такса (0 = групова / клубна)</span>
                     <input
                       className="amp-edit-input"
                       type="number"
@@ -6559,69 +6521,9 @@ function AdminMembersPageContent() {
         </div>
       )}
       {paymentAmountModalOpen && (isAdmin || isCoach) && clubId && (
-        <div className="amp-overlay" onClick={closePaymentAmountModal}>
-          <div className="amp-modal amp-modal--confirm" onClick={(e) => e.stopPropagation()}>
-            <div className="amp-modal-tint" aria-hidden="true" />
-            <h2 className="amp-modal-title">
-              <span className="amp-modal-title-gradient">Месечна такса</span>
-              <button
-                className="amp-modal-close"
-                onClick={closePaymentAmountModal}
-                aria-label="Затвори"
-                disabled={paymentAmountSaving}
-              >
-                <XIcon />
-              </button>
-            </h2>
-
-            <div className="amp-modal-body">
-              <label className="amp-edit-field amp-edit-field--full">
-                <span className="amp-lbl">Сума за клуба</span>
-                <div className="amp-money-input-wrap">
-                  <span className="amp-money-input-icon">€</span>
-                  <input
-                    className="amp-edit-input amp-money-input"
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    value={paymentAmountForm}
-                    onChange={(e) => {
-                      setPaymentAmountForm(e.target.value);
-                      setPaymentAmountError("");
-                      setPaymentAmountSuccess("");
-                    }}
-                    disabled={paymentAmountSaving}
-                  />
-                </div>
-              </label>
-              <p className="amp-confirm-text">
-                Тази сума ще бъде зададена като стандартна за клуба и ще се приложи за всички състезатели.
-              </p>
-
-              {paymentAmountError && <p className="amp-confirm-error">{paymentAmountError}</p>}
-              {paymentAmountSuccess && <p className="amp-confirm-success">{paymentAmountSuccess}</p>}
-
-              <div className="amp-modal-actions">
-                <button
-                  className="amp-btn amp-btn--ghost"
-                  type="button"
-                  onClick={closePaymentAmountModal}
-                  disabled={paymentAmountSaving}
-                >
-                  Отказ
-                </button>
-                <button
-                  className="amp-btn amp-btn--primary"
-                  type="button"
-                  onClick={handleSavePaymentAmount}
-                  disabled={paymentAmountSaving}
-                >
-                  {paymentAmountSaving ? "Запазване..." : "Запази"}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
+        <MonthlyFeeModal clubId={clubId} assignments={feeAssignments} deleteGroupId={feeDeleteGroupId}
+          onClose={() => { setPaymentAmountModalOpen(false); setFeeAssignments(undefined); setFeeDeleteGroupId(undefined); }}
+          onSaved={() => { window.location.reload(); }} />
       )}
       {rulesModalOpen && (isAdmin || isCoach) && clubId && (
         <div className="amp-overlay" onClick={() => { if (!rulesUploading && !rulesDeletingId) setRulesModalOpen(false); }}>
@@ -6943,12 +6845,20 @@ function AdminMembersPageContent() {
                                   setCoachGroupDeleteSaving(true);
                                   try {
                                     const response = await fetch(`/api/admin/clubs/${encodeURIComponent(clubId)}/coach-groups/${encodeURIComponent(group.id)}`, { method: "DELETE" });
-                                    if (!response.ok) throw new Error("Грешка при изтриване");
+                                    if (!response.ok) {
+                                      const data = await response.json().catch(() => ({}));
+                                      if (response.status === 409 && data.conflicts?.length) {
+                                        setFeeAssignments(undefined);
+                                        setFeeDeleteGroupId(group.id);
+                                        setPaymentAmountModalOpen(true);
+                                      }
+                                      throw new Error(data.error ?? "Грешка при изтриване");
+                                    }
                                     setCoachGroupDeleteId(null);
                                     void loadCoachGroups();
                                     void refreshMembersList();
-                                  } catch {
-                                    // ignore
+                                  } catch (err) {
+                                    setCoachGroupCreateError(err instanceof Error ? err.message : "Грешка при изтриване");
                                   } finally {
                                     setCoachGroupDeleteSaving(false);
                                   }
@@ -7011,6 +6921,7 @@ function AdminMembersPageContent() {
           coachGroupName={currentCoachGroupName}
         />
       )}
+      {matchHistoryOpen && clubId && <MatchHistoryModal clubId={clubId} clubName={clubName} clubLogoUrl={clubLogoUrl} coachGroupId={coachGroupId || undefined} coachGroupName={coachGroups.find((group) => group.id === coachGroupId)?.name} onClose={() => setMatchHistoryOpen(false)} />}
       {attendanceDashboardOpen && clubId && (
         <AttendanceDashboard
           onClose={() => setAttendanceDashboardOpen(false)}
@@ -7025,7 +6936,7 @@ function AdminMembersPageContent() {
           <div className="amp-modal amp-modal--match-view" onClick={(e) => e.stopPropagation()}>
             <div className="amp-modal-tint" aria-hidden="true" />
             <h2 className="amp-modal-title">
-              <span className="amp-modal-title-gradient amp-modal-title-gradient--match">Мач</span>
+              <span className="amp-modal-title-gradient amp-modal-title-gradient--match">{matchEventTypeLabel(matchViewMatch.eventType)}</span>
               <button className="amp-modal-close" onClick={() => setMatchViewPopupOpen(false)} aria-label="Затвори">
                 <XIcon />
               </button>
@@ -7057,19 +6968,24 @@ function AdminMembersPageContent() {
                   {matchViewMatch.isHome ? "Домакин" : "Гост"}
                 </span>
               </div>
-              {matchViewMatch.durationMinutes > 0 && (
+              <div className="amp-match-view-row"><span className="amp-match-view-label">Характер на срещата</span><span className="amp-match-view-value">{matchCategoryLabel(matchViewMatch.category)}</span></div>
+                        {matchViewMatch.description && <div className="amp-match-view-row"><span className="amp-match-view-label">Описание</span><span className="amp-match-view-value" style={{ whiteSpace: "pre-wrap" }}>{matchViewMatch.description}</span></div>}
+                        {matchViewMatch.durationMinutes > 0 && (
                 <div className="amp-match-view-row">
                   <span className="amp-match-view-label">Продължителност</span>
                   <span className="amp-match-view-value">{matchViewMatch.durationMinutes} мин</span>
                 </div>
               )}
             </div>
+            {clubId && <MatchAttendancePanel key={matchViewMatch.id} clubId={clubId} matchId={matchViewMatch.id} />}
             <div className="amp-modal-actions amp-modal-actions--end" style={{ marginTop: "8px" }}>
               <button
                 type="button"
                 className="amp-btn amp-btn--ghost"
                 onClick={() => {
+                  dayDetailsMatchOriginalResult.current = { homeScore: matchViewMatch.homeScore, awayScore: matchViewMatch.awayScore };
                   setDayDetailsMatchEditForm({
+                    description: matchViewMatch.description ?? "", category: matchViewMatch.category ?? "",
                     opponent: matchViewMatch.opponent,
                     location: matchViewMatch.location,
                     matchDate: matchViewMatch.matchDate,
@@ -7077,6 +6993,8 @@ function AdminMembersPageContent() {
                     durationMinutes: String(matchViewMatch.durationMinutes),
                     isHome: matchViewMatch.isHome,
                     customGroupId: matchViewMatch.customGroupId,
+                    homeScore: String(matchViewMatch.homeScore ?? ""),
+                    awayScore: String(matchViewMatch.awayScore ?? ""),
                   });
                   setDayDetailsMatchError("");
                   setDayDetailsMatchDeleteConfirm(false);
@@ -7158,8 +7076,6 @@ function AdminMembersPageContent() {
                 <div className="amp-training-week-panel">
                   {trainingWeekLoading ? (
                     <p className="amp-empty amp-empty--modal">Зареждане...</p>
-                  ) : trainingWeekSessions.length === 0 ? (
-                    <p className="amp-empty amp-empty--modal">Няма насрочени събития за следващите 7 дни.</p>
                   ) : (
                     <>
                       {weekSessionColorOptions.length > 0 && (
@@ -7200,6 +7116,9 @@ function AdminMembersPageContent() {
                           ))}
                         </div>
                       )}
+                      {trainingWeekSessions.length === 0 && (
+                        <p className="amp-empty amp-empty--modal">Няма насрочени събития за следващите 7 дни.</p>
+                      )}
                       <WeeklyGrid
                         dates={trainingWeekDates}
                         sessions={(() => {
@@ -7208,7 +7127,7 @@ function AdminMembersPageContent() {
                             ? (weekColorFilter ?? selectedCustomGroup?.color ?? singleGroupColor ?? null)
                             : null;
                           const base = weekColorFilter
-                            ? trainingWeekSessions.filter((s) => s.color === weekColorFilter || s.eventType === "match")
+                            ? trainingWeekSessions.filter((s) => s.color === weekColorFilter)
                             : trainingWeekSessions;
                           return matchColor
                             ? base.map((s) => s.eventType === "match" && !s.color ? { ...s, color: matchColor } : s)
@@ -7372,12 +7291,12 @@ function AdminMembersPageContent() {
                                       key={date}
                                       type="button"
                                       className="amp-training-date-btn amp-training-date-btn--calendar-match-only"
-                                      aria-label={`Мач на ${formatIsoDateForDisplay(date)}`}
+                                      aria-label={`${matchEventTypeLabel(matchesForDate[0]?.eventType)} на ${formatIsoDateForDisplay(date)}`}
                                       onClick={() => { setMatchViewMatch(matchesForDate[0]!); setMatchViewPopupOpen(true); }}
                                     >
                                       <span className="amp-training-day-number">{dayNumber}</span>
                                       {matchesForDate[0]?.matchTime && (
-                                        <span className="amp-training-day-match">{matchesForDate[0].matchTime}</span>
+                                        <span className="amp-training-day-match">{matchEventTypeLabel(matchesForDate[0].eventType)} · {matchesForDate[0].matchTime}</span>
                                       )}
                                       <span className="amp-training-day-match amp-training-day-match--location">{matchesForDate[0]?.isHome ? "Д" : "Г"}</span>
                                     </button>
@@ -7398,7 +7317,7 @@ function AdminMembersPageContent() {
                                   >
                                     <span className="amp-training-day-number">{dayNumber}</span>
                                     {hasTrainingAndMatch && matchesForDate[0]?.matchTime && (
-                                      <span className="amp-training-day-match">{matchesForDate[0].matchTime}</span>
+                                      <span className="amp-training-day-match">{matchEventTypeLabel(matchesForDate[0].eventType)} · {matchesForDate[0].matchTime}</span>
                                     )}
                                     {hasTrainingAndMatch && (
                                       <span className="amp-training-day-match amp-training-day-match--location">{matchesForDate[0]?.isHome ? "Д" : "Г"}</span>
@@ -7421,7 +7340,7 @@ function AdminMembersPageContent() {
                       {false && trainingDaysEditorOpen && (
                         <div className="amp-training-days-editor">
                           <div className="amp-training-days-editor-header">
-                            <span className="amp-lbl">Избери тренировъчни дни (следващи 30 дни)</span>
+                            <span className="amp-lbl">Избери тренировъчни дни (следващи 3 месеца)</span>
                             <span className="amp-lbl">Избрани: {schedulerForm.trainingDates.length}</span>
                           </div>
                           <div className="amp-training-calendar">
@@ -8174,11 +8093,11 @@ function AdminMembersPageContent() {
           className="amp-overlay amp-overlay--confirm"
           onClick={() => { if (!matchEditorSaving) { setScheduleEventModalOpen(false); setScheduleEventStep("type"); } }}
         >
-          <div className="amp-modal amp-modal--confirm" onClick={(e) => e.stopPropagation()}>
+          <div className={`amp-modal amp-modal--confirm${scheduleEventStep !== "type" ? " amp-modal--match-editor" : ""}`} onClick={(e) => e.stopPropagation()}>
             <div className="amp-modal-tint" aria-hidden="true" />
             <h2 className="amp-modal-title">
               <span className="amp-modal-title-gradient">
-                {scheduleEventStep === "type" ? "Насрочи събитие" : "Мач / Двубой / Състезание / Участие"}
+                {scheduleEventStep === "type" ? "Насрочи събитие" : scheduleEventStep === "match-type" ? "Избери вид събитие" : matchEventTypeLabel(matchEventType)}
               </span>
               <button
                 className="amp-modal-close"
@@ -8217,22 +8136,33 @@ function AdminMembersPageContent() {
                       setMatchSelectedDates([]);
                       setMatchDetailsPerDay({});
                       setMatchExistingIdByDate({});
-                      setScheduleEventStep("match-days");
+                      setMatchEventType(null);
+                      setScheduleEventStep("match-type");
                     }}
                   >
                     <span className="amp-schedule-event-type-icon amp-schedule-event-type-icon--match" aria-hidden="true" />
                     Мач / Двубой / Състезание / Участие
                   </button>
                 </div>
+              ) : scheduleEventStep === "match-type" ? (
+                <>
+                  <p className="amp-lbl" style={{ textAlign: "center" }}>Изберете вида на събитието</p>
+                  <div className="amp-match-event-types">
+                    {(Object.entries(MATCH_EVENT_TYPES) as [MatchEventType, string][]).map(([value, label]) => (
+                      <button key={value} type="button" className="amp-btn amp-btn--primary" onClick={() => { setMatchEventType(value); setScheduleEventStep("match-days"); }}>{label}</button>
+                    ))}
+                  </div>
+                  <div className="amp-modal-actions amp-modal-actions--end"><button type="button" className="amp-btn amp-btn--ghost" onClick={() => setScheduleEventStep("type")}>Назад</button></div>
+                </>
               ) : (
                 <>
                   <div className="amp-training-days-editor-header" style={{ flexDirection: "column", alignItems: "center", textAlign: "center" }}>
                     <span className="amp-lbl" style={{ textAlign: "center" }}>
                       {trainingAttendanceView === "trainingGroups" && !isCustomTrainingGroupMode
-                        ? "Добави мач за сборен отбор"
+                        ? `${matchEventTypeLabel(matchEventType)} за сборен отбор`
                         : trainingAttendanceView === "trainingGroups" && isCustomTrainingGroupMode
-                          ? "Добави мач за персонализирана група"
-                          : "Добави мач"}
+                          ? `${matchEventTypeLabel(matchEventType)} за персонализирана група`
+                          : matchEventTypeLabel(matchEventType)}
                     </span>
                     {scheduleEventStep === "match-days" && (
                       <span className="amp-lbl" style={{ textAlign: "center" }}>Избрани: {matchSelectedDates.length}</span>
@@ -8247,9 +8177,9 @@ function AdminMembersPageContent() {
                         justifyContent: "center",
                         padding: "6px 10px",
                         borderRadius: "999px",
-                        border: "1px solid rgba(50,205,50,0.45)",
-                        background: "rgba(50,205,50,0.16)",
-                        color: "#d7ffd7",
+                        border: "1px solid rgba(249,115,22,0.45)",
+                        background: "rgba(249,115,22,0.16)",
+                        color: "#fed7aa",
                         fontWeight: 700,
                         textAlign: "center",
                         width: "100%",
@@ -8351,7 +8281,7 @@ function AdminMembersPageContent() {
                                     <span className="amp-training-day-number">{dayNumber}</span>
                                     {matchesForDate.slice(0, 2).map((match) => (
                                       <span key={match.id} className="amp-training-day-match">
-                                        {match.matchTime} {match.opponent}
+                                        {matchEventTypeLabel(match.eventType)} · {match.matchTime} {match.opponent}
                                       </span>
                                     ))}
                                     {matchesForDate.length > 2 && (
@@ -8368,7 +8298,7 @@ function AdminMembersPageContent() {
                         <button
                           type="button"
                           className="amp-btn amp-btn--ghost"
-                          onClick={() => { setScheduleEventStep("type"); setMatchEditorError(""); }}
+                          onClick={() => { setScheduleEventStep("match-type"); setMatchEditorError(""); }}
                           disabled={matchEditorSaving}
                         >
                           Назад
@@ -8396,6 +8326,7 @@ function AdminMembersPageContent() {
                           return (
                             <div key={date} className="amp-match-day-section">
                               <span className="amp-lbl amp-match-day-label">{formatIsoDateForDisplay(date)}</span>
+                              <MatchExtraFields description={details.description ?? ""} category={details.category ?? ""} disabled={matchEditorSaving} onChange={(fields) => setMatchDetailsPerDay((prev) => ({ ...prev, [date]: { ...details, ...fields } }))} />
                               <label className="amp-edit-field">
                                 <span className="amp-lbl">Час</span>
                                 <div className="amp-edit-input" style={{ display: "flex", justifyContent: "center", alignItems: "center", padding: 0 }}>
@@ -8421,6 +8352,7 @@ function AdminMembersPageContent() {
                                   disabled={matchEditorSaving}
                                 />
                               </label>
+                              {clubId && <MatchOverlapWarning clubId={clubId} date={date} time={details.time} duration={details.duration} isHome={details.isHome} />}
                               <div className="amp-edit-field">
                                 <span className="amp-lbl">Домакин / Гост</span>
                                 <div style={{ display: "flex", gap: 8 }}>
@@ -8486,7 +8418,7 @@ function AdminMembersPageContent() {
                           onClick={() => void handleSaveMatch()}
                           disabled={matchEditorSaving || !matchSelectedDates.every((d) => {
                             const det = matchDetailsPerDay[d];
-                            return det?.location?.trim() && det?.time;
+                            return det?.category && det?.location?.trim() && det?.time;
                           })}
                         >
                           {matchEditorSaving ? "Запазване..." : matchSelectedDates.length > 1 ? `Запази ${matchSelectedDates.length} събития` : "Запази събитие"}
@@ -8584,7 +8516,7 @@ function AdminMembersPageContent() {
                           ? "Задай тренировъчни дни за сборен отбор"
                           : trainingDaysEditorMode === "coachGroup"
                             ? "Тренировъчен график"
-                            : "Избери тренировъчни дни (следващи 30 дни)"}
+                            : "Избери тренировъчни дни (следващи 3 месеца)"}
                     </span>
                     {trainingDaysEditorMode !== "createGroup" && trainingDaysSingleEditDate === null && (
                       <span className="amp-lbl" style={{ textAlign: "center" }}>Избрани: {schedulerForm.trainingDates.length}</span>
@@ -9662,7 +9594,7 @@ function AdminMembersPageContent() {
                       onClick={() => { setTrainingDayDetailsTab(`match-${match.id}`); setDayDetailsMatchEditOpen(false); setDayDetailsMatchDeleteConfirm(false); setDayDetailsMatchError(""); }}
                       disabled={trainingDayDetailsTabLoading || trainingNoteSaving}
                     >
-                      <span className="amp-day-details-tab-type">Мач</span>
+                      <span className="amp-day-details-tab-type">{matchEventTypeLabel(match.eventType)}</span>
                       <span className="amp-day-details-tab-time">{match.matchTime}</span>
                       {matchGroupName && <span className="amp-day-details-tab-label">{matchGroupName}</span>}
                     </button>
@@ -9689,6 +9621,7 @@ function AdminMembersPageContent() {
                         <span className="amp-lbl">Продължителност (мин.)</span>
                         <input type="number" className="amp-edit-input" min={1} max={1440} value={dayDetailsMatchEditForm.durationMinutes} onChange={(e) => setDayDetailsMatchEditForm((f) => ({ ...f, durationMinutes: e.target.value }))} disabled={dayDetailsMatchSaving} />
                       </div>
+                      {clubId && <MatchOverlapWarning clubId={clubId} date={dayDetailsMatchEditForm.matchDate} time={dayDetailsMatchEditForm.matchTime} duration={dayDetailsMatchEditForm.durationMinutes} isHome={dayDetailsMatchEditForm.isHome} excludeMatchId={dayDetailsActiveMatch.id} />}
                       <div className="amp-edit-field">
                         <span className="amp-lbl">Домакин / Гост</span>
                         <div style={{ display: "flex", gap: "8px" }}>
@@ -9715,6 +9648,8 @@ function AdminMembersPageContent() {
                           </select>
                         </div>
                       )}
+                      <MatchExtraFields description={dayDetailsMatchEditForm.description} category={dayDetailsMatchEditForm.category} disabled={dayDetailsMatchSaving} onChange={(fields) => setDayDetailsMatchEditForm((form) => ({ ...form, ...fields }))} />
+                      {hasMatchFinished(dayDetailsActiveMatch) && <MatchResultFields isHome={dayDetailsMatchEditForm.isHome} opponent={dayDetailsMatchEditForm.opponent} homeScore={dayDetailsMatchEditForm.homeScore} awayScore={dayDetailsMatchEditForm.awayScore} onChange={(homeScore, awayScore) => setDayDetailsMatchEditForm((form) => ({ ...form, homeScore, awayScore }))} disabled={dayDetailsMatchSaving} />}
                       {dayDetailsMatchError && <p style={{ color: "#ff6b6b", fontSize: 13, margin: 0 }}>{dayDetailsMatchError}</p>}
                       <div className="amp-modal-actions amp-modal-actions--end">
                         <button type="button" className="amp-btn amp-btn--ghost" onClick={() => {
@@ -9773,12 +9708,15 @@ function AdminMembersPageContent() {
                           <span className="amp-match-view-label">Място</span>
                           <span className="amp-match-view-value">{dayDetailsActiveMatch.location || "—"}</span>
                         </div>
+                        <div className="amp-match-view-row"><span className="amp-match-view-label">Характер на срещата</span><span className="amp-match-view-value">{matchCategoryLabel(dayDetailsActiveMatch.category)}</span></div>
+                        {dayDetailsActiveMatch.description && <div className="amp-match-view-row"><span className="amp-match-view-label">Описание</span><span className="amp-match-view-value" style={{ whiteSpace: "pre-wrap" }}>{dayDetailsActiveMatch.description}</span></div>}
                         {dayDetailsActiveMatch.durationMinutes > 0 && (
                           <div className="amp-match-view-row">
                             <span className="amp-match-view-label">Продължителност</span>
                             <span className="amp-match-view-value">{dayDetailsActiveMatch.durationMinutes} мин</span>
                           </div>
                         )}
+                      {clubId && <MatchAttendancePanel key={dayDetailsActiveMatch.id} clubId={clubId} matchId={dayDetailsActiveMatch.id} />}
                       </div>
                       <div className="amp-modal-actions amp-modal-actions--end" style={{ marginTop: "8px" }}>
                         <button
@@ -9792,7 +9730,9 @@ function AdminMembersPageContent() {
                           type="button"
                           className="amp-btn amp-btn--ghost"
                           onClick={() => {
+                            dayDetailsMatchOriginalResult.current = { homeScore: dayDetailsActiveMatch.homeScore, awayScore: dayDetailsActiveMatch.awayScore };
                             setDayDetailsMatchEditForm({
+                              description: dayDetailsActiveMatch.description ?? "", category: dayDetailsActiveMatch.category ?? "",
                               opponent: dayDetailsActiveMatch.opponent,
                               location: dayDetailsActiveMatch.location,
                               matchDate: dayDetailsActiveMatch.matchDate,
@@ -9800,6 +9740,8 @@ function AdminMembersPageContent() {
                               durationMinutes: String(dayDetailsActiveMatch.durationMinutes),
                               isHome: dayDetailsActiveMatch.isHome,
                               customGroupId: dayDetailsActiveMatch.customGroupId,
+                              homeScore: String(dayDetailsActiveMatch.homeScore ?? ""),
+                              awayScore: String(dayDetailsActiveMatch.awayScore ?? ""),
                             });
                             setDayDetailsMatchError("");
                             setDayDetailsMatchEditOpen(true);
@@ -10293,11 +10235,11 @@ function AdminMembersPageContent() {
                               <span
                                 key={date}
                                 className="amp-training-date-btn amp-training-date-btn--calendar-match-only"
-                                aria-label={`Мач на ${formatIsoDateForDisplay(date)}`}
+                                aria-label={`${matchEventTypeLabel(matchesForDate[0]?.eventType)} на ${formatIsoDateForDisplay(date)}`}
                               >
                                 <span className="amp-training-day-number">{dayNumber}</span>
                                 {matchesForDate[0]?.matchTime && (
-                                  <span className="amp-training-day-match">{matchesForDate[0].matchTime}</span>
+                                  <span className="amp-training-day-match">{matchEventTypeLabel(matchesForDate[0].eventType)} · {matchesForDate[0].matchTime}</span>
                                 )}
                                 <span className="amp-training-day-match amp-training-day-match--location">{matchesForDate[0]?.isHome ? "Д" : "Г"}</span>
                               </span>
@@ -10318,7 +10260,7 @@ function AdminMembersPageContent() {
                             >
                               <span className="amp-training-day-number">{dayNumber}</span>
                               {hasTrainingAndMatch && matchesForDate[0]?.matchTime && (
-                                <span className="amp-training-day-match">{matchesForDate[0].matchTime}</span>
+                                <span className="amp-training-day-match">{matchEventTypeLabel(matchesForDate[0].eventType)} · {matchesForDate[0].matchTime}</span>
                               )}
                               {hasTrainingAndMatch && (
                                 <span className="amp-training-day-match amp-training-day-match--location">{matchesForDate[0]?.isHome ? "Д" : "Г"}</span>
@@ -10385,6 +10327,7 @@ function AdminMembersPageContent() {
       {inactivePlayersOpen && canViewInactiveMembers && canManageMemberActions && (
         <InactivePlayersModal
           members={inactiveMembers}
+          isCovered={Boolean(selectedMember)}
           isReactivating={Boolean(reactivatingMemberId)}
           reactivatingMemberId={reactivatingMemberId}
           isDeletingPermanent={Boolean(deletingPermanentMemberId)}
@@ -10397,10 +10340,39 @@ function AdminMembersPageContent() {
           }}
           onSelectMember={(member) => {
             if (reactivatingMemberId || deletingPermanentMemberId || memberToPermanentDelete) return;
-            setInactivePlayersOpen(false);
             setSelectedMember(member);
           }}
           onReactivate={handleReactivateMember}
+          onBulkDelete={async (selectedMembers) => {
+            if (reactivatingMemberId || deletingPermanentMemberId) return;
+            setInactiveActionError("");
+            const failedNames: string[] = [];
+            try {
+              for (const member of selectedMembers) {
+                setDeletingPermanentMemberId(member.id);
+                try {
+                  const response = await fetch(`/api/admin/members/${member.id}`, {
+                    method: "PATCH",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ action: "delete_permanently" }),
+                  });
+                  if (!response.ok) {
+                    failedNames.push(member.fullName);
+                    continue;
+                  }
+                  setMembers((previous) => previous.filter((item) => item.id !== member.id));
+                  setSelectedMember((previous) => previous?.id === member.id ? null : previous);
+                } catch {
+                  failedNames.push(member.fullName);
+                }
+              }
+              if (failedNames.length > 0) {
+                setInactiveActionError(`Неуспешно изтриване: ${failedNames.join(", ")}. Опитай отново.`);
+              }
+            } finally {
+              setDeletingPermanentMemberId(null);
+            }
+          }}
           onPermanentDelete={(member) => {
             if (reactivatingMemberId || deletingPermanentMemberId) return;
             setInactiveActionError("");
@@ -10764,6 +10736,11 @@ function AdminMembersPageContent() {
                   Изчисти
                 </button>
               </div>
+              <GroupAssignmentFeeNotice rows={bulkCoachGroupFeePreview} clubAmount={bulkCoachGroupFeeSettings?.paymentAmount ?? ""}
+                busy={bulkCoachGroupBusy} onChoice={(playerId, groupId) => {
+                  setBulkCoachGroupBillingChoices((prev) => ({ ...prev, [playerId]: groupId }));
+                  setBulkCoachGroupError("");
+                }} />
               <div className="amp-notify-player-list">
                 {bulkCoachGroupLoadingMembers ? (
                   <p style={{ padding: "12px", fontSize: "13px", color: "rgba(255,255,255,0.4)", textAlign: "center" }}>
@@ -10804,7 +10781,11 @@ function AdminMembersPageContent() {
                 )}
               </div>
               {bulkCoachGroupError && (
-                <p className="amp-confirm-error" style={{ marginTop: "8px" }}>{bulkCoachGroupError}</p>
+                <div role="alert"><p className="amp-confirm-error" style={{ marginTop: "8px" }}>{bulkCoachGroupError}</p>
+                  {feeAssignments && <button type="button" className="amp-btn amp-btn--ghost" onClick={() => {
+                    setFeeDeleteGroupId(undefined); setPaymentAmountModalOpen(true);
+                  }}>Преглед на месечните такси и избор на група</button>}
+                </div>
               )}
               <div className="amp-modal-actions" style={{ marginTop: "16px" }}>
                 <button
@@ -10818,7 +10799,7 @@ function AdminMembersPageContent() {
                 <button
                   type="button"
                   className={`amp-btn amp-btn--primary${bulkCoachGroupSaved ? " amp-btn--saved" : ""}`}
-                  disabled={bulkCoachGroupBusy || bulkCoachGroupSaved}
+                  disabled={bulkCoachGroupBusy || bulkCoachGroupSaved || bulkCoachGroupLoadingMembers || !bulkCoachGroupFeeSettings || bulkCoachGroupHasFeeConflicts}
                   onClick={() => void handleBulkCoachGroupSave()}
                 >
                   {bulkCoachGroupBusy ? "Запазване..." : bulkCoachGroupSaved ? "✓ Записано" : `Запази (${bulkCoachGroupSelectedIds.size})`}

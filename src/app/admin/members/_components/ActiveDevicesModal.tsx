@@ -14,6 +14,7 @@ const filters: { value: Filter; label: string }[] = [
 export default function ActiveDevicesModal({ clubId, onClose }: { clubId: string; onClose: () => void }) {
   const [players, setPlayers] = useState<PlayerDevices[]>([]);
   const [filter, setFilter] = useState<Filter>("all");
+  const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [hasLoaded, setHasLoaded] = useState(false);
@@ -31,7 +32,7 @@ export default function ActiveDevicesModal({ clubId, onClose }: { clubId: string
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") { event.preventDefault(); closeRef.current(); }
       if (event.key !== "Tab") return;
-      const buttons = dialogRef.current?.querySelectorAll<HTMLButtonElement>("button:not(:disabled)");
+      const buttons = dialogRef.current?.querySelectorAll<HTMLElement>("button:not(:disabled), input:not(:disabled)");
       if (!buttons?.length) return;
       const first = buttons[0], last = buttons[buttons.length - 1];
       if (event.shiftKey && (document.activeElement === first || document.activeElement === dialogRef.current)) {
@@ -49,16 +50,16 @@ export default function ActiveDevicesModal({ clubId, onClose }: { clubId: string
   }, []);
 
   useEffect(() => {
-    const controller = new AbortController();
+    let active = true;
     async function load() {
       setLoading(true);
       setError("");
       setAccessError(null);
       try {
         const response = await fetch(`/api/admin/members/push-devices?clubId=${encodeURIComponent(clubId)}`, {
-          cache: "no-store", signal: controller.signal,
+          cache: "no-store",
         });
-        if (controller.signal.aborted) return;
+        if (!active) return;
         if (response.status === 401 || response.status === 403) {
           setPlayers([]);
           setHasLoaded(false);
@@ -67,25 +68,30 @@ export default function ActiveDevicesModal({ clubId, onClose }: { clubId: string
         }
         if (!response.ok) throw new Error("Неуспешно зареждане. Опитайте отново с „Обнови“.");
         const data: { players: PlayerDevices[] } = await response.json();
-        if (!controller.signal.aborted) {
+        if (active) {
           setPlayers(data.players);
           setHasLoaded(true);
         }
       } catch (error) {
-        if (!controller.signal.aborted) {
+        if (active) {
           setError(error instanceof Error ? error.message : "Неуспешно зареждане.");
         }
       } finally {
-        if (!controller.signal.aborted) setLoading(false);
+        if (active) setLoading(false);
       }
     }
     void load();
-    return () => controller.abort();
+    // Ignore late responses without triggering an AbortError during effect cleanup.
+    return () => { active = false; };
   }, [clubId, refresh]);
 
   const activeCount = players.filter((player) => player.activeDeviceCount > 0).length;
   const counts = { all: players.length, active: activeCount, inactive: players.length - activeCount };
-  const visiblePlayers = players.filter((player) => filter === "all" || (filter === "active" ? player.activeDeviceCount > 0 : player.activeDeviceCount === 0));
+  const searchQuery = search.trim().toLocaleLowerCase("bg");
+  const visiblePlayers = players.filter((player) =>
+    player.fullName.toLocaleLowerCase("bg").includes(searchQuery) &&
+    (filter === "all" || (filter === "active" ? player.activeDeviceCount > 0 : player.activeDeviceCount === 0))
+  );
 
   return (
     <div className="amp-overlay" onClick={onClose}>
@@ -104,6 +110,14 @@ export default function ActiveDevicesModal({ clubId, onClose }: { clubId: string
           <span role="status">{loading ? (hasLoaded ? "Обновяване…" : "Зареждане…") : hasLoaded ? `${players.length} състезатели` : "Данните не са заредени"}</span>
           <button type="button" className={styles.refresh} disabled={loading || accessError !== null} onClick={() => setRefresh((value) => value + 1)}>Обнови</button>
         </div>
+        <input
+          type="search"
+          className={styles.search}
+          aria-label="Търсене по име"
+          placeholder="Търсене по име…"
+          value={search}
+          onChange={(event) => setSearch(event.target.value)}
+        />
         <div className={styles.filters} role="group" aria-label="Филтър по активни устройства">
           {filters.map((item) => (
             <button key={item.value} type="button" aria-pressed={filter === item.value} className={`${styles.filter} ${styles[item.value]}`} onClick={() => setFilter(item.value)}>
@@ -126,7 +140,7 @@ export default function ActiveDevicesModal({ clubId, onClose }: { clubId: string
         <div className={styles.list} aria-busy={loading}>
           {loading && !hasLoaded ? <p className={styles.empty} role="status">Зареждане на устройствата…</p>
             : !hasLoaded ? null
-            : visiblePlayers.length === 0 ? <p className={styles.empty} role="status">{players.length === 0 ? "Няма активни състезатели в този клуб." : "Няма състезатели, отговарящи на избрания филтър."}</p>
+            : visiblePlayers.length === 0 ? <p className={styles.empty} role="status">{players.length === 0 ? "Няма активни състезатели в този клуб." : searchQuery ? "Няма състезатели, отговарящи на търсенето и избрания филтър." : "Няма състезатели, отговарящи на избрания филтър."}</p>
             : <ul>{visiblePlayers.map((player) => (
               <li key={player.id} className={styles.row}>
                 <span className={styles.name}>{player.fullName}</span>

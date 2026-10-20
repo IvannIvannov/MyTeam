@@ -1068,6 +1068,21 @@
   margin: 0 0 12px;
 }
 
+.member-match-day-selector {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+.member-match-day-selector .member-day-tab {
+  padding: 9px 12px;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.member-match-day-selector .member-day-tab:focus-visible {
+  outline: 2px solid #f97316;
+  outline-offset: 2px;
+}
+
 .member-day-tab {
   min-height: 34px;
   border-radius: 8px;
@@ -2213,6 +2228,16 @@
   padding: 24px;
   box-shadow: 0 0 60px rgba(50,205,50,0.1), 0 25px 60px rgba(0,0,0,0.7);
   overflow-x: hidden;
+}
+
+dialog.pm-modal {
+  color: inherit;
+  width: calc(100% - 32px);
+}
+
+dialog.pm-modal::backdrop {
+  background: rgba(0, 0, 0, 0.75);
+  backdrop-filter: blur(4px);
 }
 
 /* Top accent line */

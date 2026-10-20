@@ -8,6 +8,7 @@ vi.mock("@/lib/memberEvents", () => ({ publishMemberUpdated: vi.fn() }));
 vi.mock("@/lib/trainingAttendanceEvents", () => ({ publishTrainingAttendanceUpdated: vi.fn() }));
 vi.mock("@/lib/push/service", () => ({ sendPushToMember: vi.fn() }));
 vi.mock("@/lib/db", () => ({ prisma: {
+  club: { findUnique: vi.fn().mockResolvedValue({ paymentWorkflow: "calendar" }) },
   trainingSession: { findMany: mocks.sessions, findFirst: mocks.refreshed }, player: { findMany: mocks.players },
   trainingSessionPlayer: { createMany: mocks.enroll },
 } }));

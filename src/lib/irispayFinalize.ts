@@ -1,4 +1,4 @@
-import { type IrisPayment } from "@prisma/client";
+import { Prisma, type IrisPayment } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import {
   deactivateIrisPayment,
@@ -23,7 +23,16 @@ type IrisPaymentForDeactivation = Pick<
   "id" | "paymentHash" | "rawCreatePayload" | "linkDeactivatedAt"
 >;
 
-function buildPaidDates(payment: IrisPayment): Date[] {
+export function buildPaidDates(payment: IrisPayment): Date[] {
+  if (payment.quotedPaidDates !== null && payment.quotedPaidDates !== undefined) {
+    const raw = payment.quotedPaidDates;
+    if (!Array.isArray(raw) || raw.length === 0 || raw.some((value) => typeof value !== "string" || Number.isNaN(new Date(value).getTime()))) {
+      throw new Error("Invalid quoted payment periods");
+    }
+    const dates = (raw as string[]).map((value) => new Date(value));
+    if (new Set(dates.map((date) => date.toISOString())).size !== dates.length) throw new Error("Duplicate quoted payment periods");
+    return dates;
+  }
   if (payment.paidThrough && payment.paidThrough.getTime() !== payment.paidFor.getTime()) {
     const dates: Date[] = [];
     const cursor = new Date(payment.paidFor);
@@ -110,7 +119,11 @@ export async function verifyAndApplyIrisPayment(input: {
     };
   }
 
-  const statusPayload = await getIrisPaymentStatus(pendingPayment.paymentHash);
+  // Use the options saved at creation, even if the current environment setting changes.
+  const statusPayload = await getIrisPaymentStatus(
+    pendingPayment.paymentHash,
+    isReusableIrisCreatePayload(pendingPayment.rawCreatePayload),
+  );
   const verifiedStatus = normalizeIrisStatus(statusPayload.status);
   if (!verifiedStatus) {
     throw new Error("IRISPay returned an unknown payment status");
@@ -180,11 +193,18 @@ export async function verifyAndApplyIrisPayment(input: {
       throw new Error("IRIS payment could not be finalized");
     }
 
+    const totalAmount = new Prisma.Decimal(pendingPayment.amount.toString());
+    const amountPerPeriod = totalAmount.div(paidDates.length).toFixed(2);
+    if (!new Prisma.Decimal(amountPerPeriod).mul(paidDates.length).equals(totalAmount)) {
+      throw new Error("IRIS payment amount cannot be allocated exactly across the covered periods");
+    }
     const result = await finalizeResolvedMemberPayment({
       tx,
       playerId: pendingPayment.playerId,
       paidDates,
       recordedBy: "irispay",
+      amountPerPeriod,
+      currency: pendingPayment.currency,
       trainingCredits: pendingPayment.trainingCredits,
     });
 

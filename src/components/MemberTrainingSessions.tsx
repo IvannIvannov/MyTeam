@@ -2,7 +2,7 @@
 import { useState } from "react";
 
 type Session = { id?: string; scopeKey?: string; trainingTime?: string; trainingDurationMinutes?: number; trainingFieldName?: string | null; trainingFieldPieceNames?: string[]; note?: string; optedOut?: boolean; optOutReasonCode?: string | null; optOutReasonText?: string | null; limitedEvent?: { id: string; isRegistered: boolean; isConfirmed: boolean; waitlistPosition: number | null; spotsRemaining: number } | null };
-export default function MemberTrainingSessions({ sessions, date, cardCode, onUpdated }: { sessions: Session[]; date?: string; cardCode: string; onUpdated: () => Promise<unknown> }) {
+export default function MemberTrainingSessions({ sessions, date, cardCode, onUpdated, attendanceEnabled = true }: { sessions: Session[]; date?: string; cardCode: string; onUpdated: () => Promise<unknown>; attendanceEnabled?: boolean }) {
   const [saving, setSaving] = useState<string | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
   const [reason, setReason] = useState("sick");
@@ -38,14 +38,14 @@ export default function MemberTrainingSessions({ sessions, date, cardCode, onUpd
       {session.limitedEvent ? <div className="training-attendance-buttons" style={{ flexDirection: "column" }}>
         <p>{session.limitedEvent.isRegistered ? session.limitedEvent.isConfirmed ? "Записан за тренировката" : `Чакалня · позиция ${session.limitedEvent.waitlistPosition}` : `${session.limitedEvent.spotsRemaining} свободни места`}</p>
         <button className="pm-btn training-attend-btn" disabled={!!saving} onClick={() => void register(session)}>{session.limitedEvent.isRegistered ? "Откажи записването" : session.limitedEvent.spotsRemaining ? "Запиши се" : "Запиши се в чакалнята"}</button>
-      </div> : <>
+      </div> : attendanceEnabled ? <>
       <p>{session.optedOut ? `Отсъствам${session.optOutReasonText ? `: ${session.optOutReasonText}` : ""}` : "Присъствам"}</p>
       <div className="training-attendance-buttons">
         <button className="pm-btn training-attend-btn" disabled={!!saving || !session.optedOut} onClick={() => void update(session, false)}>Присъствам</button>
         <button className="pm-btn training-optout-btn" disabled={!!saving || !!session.optedOut} onClick={() => { setSelected(session.id ?? session.scopeKey ?? "legacy"); setReason("sick"); setText(""); }}>Отсъствам</button>
       </div>
-      </>}
-      {selected === (session.id ?? session.scopeKey ?? "legacy") && <form className="training-confirm-reason-fields" onSubmit={(e) => { e.preventDefault(); void update(session, true); }}>
+      </> : null}
+      {attendanceEnabled && selected === (session.id ?? session.scopeKey ?? "legacy") && <form className="training-confirm-reason-fields" onSubmit={(e) => { e.preventDefault(); void update(session, true); }}>
         <label className="training-confirm-reason-label"><span className="pm-info-lbl">Причина</span><select className="training-confirm-reason-control" value={reason} onChange={(e) => setReason(e.target.value)}><option value="sick">Болест</option><option value="injury">Контузия</option><option value="other">Друга</option></select></label>
         {reason === "other" && <label className="training-confirm-reason-label"><span className="pm-info-lbl">Описание</span><textarea className="training-confirm-reason-control training-confirm-reason-textarea" required value={text} onChange={(e) => setText(e.target.value)} /></label>}
         <button className="pm-btn" disabled={!!saving || (reason === "other" && !text.trim())}>{saving ? "Запазване…" : "Потвърди отсъствие"}</button>

@@ -101,4 +101,11 @@ describe("attendance eligibility from player registration", () => {
     const data = await report("coachGroupId=coach-1");
     expect(data.players[0].attendance["2026-10-02T17:00#old"]).toEqual({ present: false, reasonCode: "sick" });
   });
+
+  it("requires check-in for eligible sessions in training-credit clubs", async () => {
+    mocks.club.mockResolvedValue({ id: "club-1", paymentWorkflow: "training_credits", trainingGroupMode: "team_group", trainingDates: [], trainingWeekdays: [] });
+    const data = await report("teamGroup=2012");
+    expect(data.players[0].attendance["2026-10-02"]).toBeUndefined();
+    expect(data.players[0].attendance["2026-10-21"].present).toBe(false);
+  });
 });

@@ -1,5 +1,7 @@
+import { AttendanceFilterSelect } from "@/components/AttendanceFilterSelect";
 import { useEffect, useRef, useState } from "react";
 import { attendancePercentage } from "@/lib/attendanceEligibility";
+import { buildYearlyPaymentReport, formatRecordedPaymentAmounts } from "@/lib/yearlyPaymentReport";
 import { NotificationImage } from "@/components/NotificationImage";
 import { NotificationText } from "@/components/NotificationText";
 import { useRouter } from "next/navigation";
@@ -74,6 +76,7 @@ function AttendanceDashboard({
 
   const [from, setFrom] = useState(defaultFrom);
   const [to, setTo] = useState(todayIso);
+  const [eventType, setEventType] = useState<"training" | "match">("training");
   const [scopeType, setScopeType] = useState<"group" | "player">("group");
   const [groupScope, setGroupScope] = useState("");
   const [playerSearch, setPlayerSearch] = useState("");
@@ -280,7 +283,7 @@ function AttendanceDashboard({
           search.set("coachGroupId", coachGroupId);
         }
         const res = await fetch(
-          `/api/admin/clubs/${encodeURIComponent(clubId)}/training-attendance/report?${search.toString()}`,
+          `/api/admin/clubs/${encodeURIComponent(clubId)}/${eventType === "match" ? "matches/attendance-report" : "training-attendance/report"}?${search.toString()}`,
           { cache: "no-store" },
         );
         if (!res.ok) {
@@ -292,7 +295,7 @@ function AttendanceDashboard({
         const payload = (await res.json()) as AttendanceReportData;
         const reportData: AttendanceReportData = {
           ...payload,
-          trainingDates: [...payload.trainingDates].sort((a, b) => b.localeCompare(a)),
+          trainingDates: [...payload.trainingDates].sort((a, b) => b.slice(0, 10).localeCompare(a.slice(0, 10)) || (payload.events ? payload.events[b].time.localeCompare(payload.events[a].time) : b.localeCompare(a))),
         };
         if (cancelled) return;
         setData(reportData);
@@ -313,7 +316,7 @@ function AttendanceDashboard({
       clearTimeout(timer);
     };
      
-  }, [from, to, scopeType, groupScope, selectedPlayerId, selectedCustomGroupId, attendanceScopeKey]);
+  }, [from, to, scopeType, groupScope, selectedPlayerId, selectedCustomGroupId, attendanceScopeKey, eventType]);
 
   const formatDateHeader = (iso: string): string => {
     const parts = iso.slice(0, 10).split("-");
@@ -321,7 +324,8 @@ function AttendanceDashboard({
     const day = parts[2] ?? "01";
     const monthIdx = parseInt(month, 10) - 1;
     const shortMonths = ["Ян", "Фев", "Мар", "Апр", "Май", "Юни", "Юли", "Авг", "Сеп", "Окт", "Ное", "Дек"];
-    return `${day}\n${shortMonths[monthIdx] ?? ""}${iso.includes("#") ? `\n${iso.slice(11, 16)}` : ""}`;
+    const game = data?.events?.[iso];
+    return `${day}\n${shortMonths[monthIdx] ?? ""}${game ? `\n${game.time}${game.opponent ? `\n${game.opponent}` : ""}` : iso.includes("#") ? `\n${iso.slice(11, 16)}` : ""}`;
   };
 
   const emptyLabel = groupScope.startsWith("tg:")
@@ -368,12 +372,18 @@ function AttendanceDashboard({
           const separatorIdx = key.indexOf("|");
           const playerId = key.slice(0, separatorIdx);
           const trainingDate = key.slice(separatorIdx + 1);
+          const matchId = data?.events?.[trainingDate]?.matchId;
+          if (eventType === "match" && !matchId) throw new Error("Мачът не е намерен. Презаредете справката.");
           const res = await fetch(
-            `/api/admin/clubs/${encodeURIComponent(clubId)}/training-attendance`,
+            eventType === "match"
+              ? `/api/admin/clubs/${encodeURIComponent(clubId)}/matches/${encodeURIComponent(matchId!)}/attendance`
+              : `/api/admin/clubs/${encodeURIComponent(clubId)}/training-attendance`,
             {
               method: "PATCH",
               headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ playerId, trainingDate: trainingDate.slice(0, 10), trainingSessionId: trainingDate.includes("#") ? trainingDate.split("#")[1] : undefined, optedOut }),
+              body: JSON.stringify(eventType === "match"
+                ? { playerId, present: !optedOut, reasonCode: "other", reasonText: "Промяна направена от треньор" }
+                : { playerId, trainingDate: trainingDate.slice(0, 10), trainingSessionId: trainingDate.includes("#") ? trainingDate.split("#")[1] : undefined, optedOut }),
             },
           );
           if (!res.ok) {
@@ -397,6 +407,7 @@ function AttendanceDashboard({
               updatedAttendance[date] = {
                 present: !optedOut,
                 reasonCode: optedOut ? "other" : null,
+                reasonText: optedOut ? "Промяна направена от треньор" : null,
               };
             }
             return { ...p, attendance: updatedAttendance };
@@ -419,6 +430,9 @@ function AttendanceDashboard({
     setSaveError("");
   };
 
+  const reportTitle = eventType === "match" ? "Присъствия на мачове" : "Присъствия на тренировки";
+
+
   const printAttendance = () => {
     if (!data || typeof window === "undefined") return;
 
@@ -434,7 +448,7 @@ function AttendanceDashboard({
     const tHeadHtml = `
       <tr>
         <th style="padding: 6px; text-align: left; border-bottom: 2px solid #ccc; white-space: nowrap;">Име</th>
-        ${data.trainingDates.map(d => `<th style="padding: 6px; border-bottom: 2px solid #ccc; text-align: center;">${formatDateHeader(d).replaceAll("\n", "<br>")}</th>`).join('')}
+        ${data.trainingDates.map(d => `<th style="padding: 6px; border-bottom: 2px solid #ccc; text-align: center;">${escapeHtml(formatDateHeader(d)).replaceAll("\n", "<br>")}</th>`).join('')}
         <th style="padding: 6px; border-bottom: 2px solid #ccc; text-align: center;">%</th>
       </tr>
     `;
@@ -480,7 +494,7 @@ function AttendanceDashboard({
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Отчет присъствия (${from} до ${to})</title>
+  <title>${reportTitle} (${from} до ${to})</title>
   <style>
     body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; color: #111827; padding: 20px; margin: 0; }
     .pt { display: flex; gap: 8px; margin: 0 0 16px; }
@@ -498,7 +512,7 @@ function AttendanceDashboard({
     <button class="pt-c" onclick="window.close()">✕ Затвори</button>
     <button class="pt-p" onclick="window.print()">🖨 Принтирай</button>
   </div>
-  <div style="font-size:20px;font-weight:700;margin:0 0 16px;">Отчет присъствия (${from} до ${to})</div>
+  <div style="font-size:20px;font-weight:700;margin:0 0 16px;">${reportTitle} (${from} до ${to})</div>
   ${scopeTitle ? `<p style="margin:0 0 12px;color:#6b7280;font-size:13px;">${escapeHtml(scopeTitle)}</p>` : ""}
   <table>
     <thead>${tHeadHtml}</thead>
@@ -525,7 +539,7 @@ function AttendanceDashboard({
         <div className="rd-header">
           <h2 className="rd-title">
             <ClipboardListIcon size={20} />
-            Присъствия на тренировки
+            {reportTitle}
           </h2>
           {coachGroupId && (
             <p className="rd-subtitle">
@@ -535,6 +549,17 @@ function AttendanceDashboard({
         </div>
 
         <div className="rd-filters">
+          <div className="rd-field">
+            <label className="rd-label" htmlFor="attendance-event-type">Събития</label>
+            <AttendanceFilterSelect id="attendance-event-type" label="Събития" value={eventType} options={[{ value: "training", label: "Тренировки" }, { value: "match", label: "Мачове" }]} disabled={saving || pendingChanges.size > 0} title={pendingChanges.size > 0 ? "Запазете или откажете промените преди превключване." : undefined} onChange={(value) => {
+                setEventType(value as "training" | "match");
+                setData(null);
+                setError("");
+                setSaveError("");
+                setEditMode(false);
+                setPendingChanges(new Map());
+              }} />
+          </div>
           <div className="rd-field">
             <label className="rd-label">От</label>
             <div className="rd-select-wrap">
@@ -556,7 +581,7 @@ function AttendanceDashboard({
                 className="rd-date-input"
                 value={to}
                 min={from}
-                max={todayIso}
+                max={eventType === "training" ? todayIso : undefined}
                 onChange={(e) => setTo(e.target.value)}
               />
               <CalendarIcon size={16} />
@@ -564,66 +589,24 @@ function AttendanceDashboard({
           </div>
           <div className="rd-field">
             <label className="rd-label">Вид</label>
-            <div className="rd-select-wrap">
-              <select
-                className="rd-select"
-                value={scopeType}
-                onChange={(e) => {
-                  const next = e.target.value as "group" | "player";
+            <AttendanceFilterSelect label="Вид" value={scopeType} options={[{ value: "group", label: "Отбор" }, { value: "player", label: "Състезател" }]} onChange={(value) => {
+                  const next = value as "group" | "player";
                   setScopeType(next);
                   setData(null);
                   setError("");
-                  if (next === "player") {
-                    setPlayerSearch("");
-                    setSelectedPlayerId("");
-                  }
-                }}
-              >
-                <option value="group">Отбор</option>
-                <option value="player">Състезател</option>
-              </select>
-              <ChevronDownIcon />
-            </div>
+                  if (next === "player") { setPlayerSearch(""); setSelectedPlayerId(""); }
+                }} />
           </div>
           {scopeType === "group" ? (
             <>
               <div className="rd-field">
                 <label className="rd-label">Треньор</label>
-                <div className="rd-select-wrap">
-                  <select
-                    className="rd-select"
-                    value={groupScope}
-                    onChange={(e) => setGroupScope(e.target.value)}
-                  >
-                    {coachGroupsList.map((g) => (
-                      <option key={g.id} value={`cg:${g.id}`}>
-                        {g.name}
-                      </option>
-                    ))}
-                    {coachGroupsList.length === 0 && (
-                      <option value="" disabled>Няма треньорски групи</option>
-                    )}
-                  </select>
-                  <ChevronDownIcon />
-                </div>
+                <AttendanceFilterSelect label="Треньор" value={groupScope} options={coachGroupsList.map((group) => ({ value: `cg:${group.id}`, label: group.name }))} onChange={setGroupScope} />
               </div>
               {groupScope.startsWith("cg:") && customTrainingGroupsList.length > 0 && (
                 <div className="rd-field">
                   <label className="rd-label">Треньорска група</label>
-                  <div className="rd-select-wrap">
-                    <select
-                      className="rd-select"
-                      value={selectedCustomGroupId}
-                      onChange={(e) => setSelectedCustomGroupId(e.target.value)}
-                    >
-                      {customTrainingGroupsList.map((g) => (
-                        <option key={g.id} value={g.id}>
-                          {g.name}
-                        </option>
-                      ))}
-                    </select>
-                    <ChevronDownIcon />
-                  </div>
+                  <AttendanceFilterSelect label="Треньорска група" value={selectedCustomGroupId} options={customTrainingGroupsList.map((group) => ({ value: group.id, label: group.name }))} onChange={setSelectedCustomGroupId} />
                 </div>
               )}
             </>
@@ -678,7 +661,7 @@ function AttendanceDashboard({
         {data && (
           <>
             {data.trainingDates.length === 0 ? (
-              <p className="acd-empty">Няма тренировки в избрания период.</p>
+              <p className="acd-empty">{eventType === "match" ? "Няма мачове с включено присъствие в избрания период." : "Няма тренировки в избрания период."}</p>
             ) : data.players.length === 0 ? (
               <p className="acd-empty">{emptyLabel}</p>
             ) : (
@@ -688,7 +671,7 @@ function AttendanceDashboard({
                     <tr>
                       <th className="acd-th-name">Състезател</th>
                       {data.trainingDates.map((d) => (
-                        <th key={d} className="acd-th-date" title={d}>
+                        <th key={d} className="acd-th-date" title={formatDateHeader(d).replaceAll("\n", " ")}>
                           <span className="acd-date-label">{formatDateHeader(d)}</span>
                         </th>
                       ))}
@@ -721,7 +704,7 @@ function AttendanceDashboard({
                               ? "Присъства"
                               : !hasPending && cell.reasonCode === "injury" ? "Контузия"
                               : !hasPending && cell.reasonCode === "sick" ? "Болен"
-                              : !hasPending && cell.reasonCode === "other" ? "Друга причина"
+                              : !hasPending && cell.reasonCode === "other" ? cell.reasonText || "Друга причина"
                               : !hasPending && cell.reasonCode === "limited_event" ? "Не е записан за ограниченото събитие"
                               : !hasPending && cell.reasonCode ? `Причина: ${cell.reasonCode}` : "Отказал се";
                             const displayReasonCode = hasPending ? (displayOptedOut ? "other" : null) : cell.reasonCode;
@@ -953,6 +936,8 @@ function ReportsDialog({
                   id: String(logRaw.id ?? ""),
                   paidFor: String(logRaw.paidFor ?? ""),
                   paidAt: String(logRaw.paidAt ?? ""),
+                  amount: logRaw.amount == null ? null : String(logRaw.amount),
+                  currency: String(logRaw.currency ?? "EUR"),
                 };
               })
               : [];
@@ -962,6 +947,10 @@ function ReportsDialog({
               fullName: String(raw.fullName ?? ""),
               teamGroup: typeof raw.teamGroup === "number" ? raw.teamGroup : null,
               paymentAmount: raw.paymentAmount === null || raw.paymentAmount === undefined ? null : String(raw.paymentAmount),
+              firstBillingMonth: raw.firstBillingMonth ? String(raw.firstBillingMonth) : null,
+              paymentWorkflow: typeof raw.club === "object" && raw.club !== null
+                ? String((raw.club as Record<string, unknown>).paymentWorkflow ?? "calendar_month")
+                : "calendar_month",
               paymentLogs,
               paymentWaivers: Array.isArray(raw.paymentWaivers)
                 ? raw.paymentWaivers.map((waiver) => ({
@@ -1017,32 +1006,6 @@ function ReportsDialog({
     return latestPaidAt ? latestPaidAt.toLocaleDateString("bg-BG") : null;
   };
 
-  const getPaymentDateForYear = (player: ReportPlayer): string | null => {
-    let latestPaidAt: Date | null = null;
-
-    for (const log of player.paymentLogs ?? []) {
-      const paidForDate = new Date(log.paidFor);
-      const paidAtDate = new Date(log.paidAt);
-      if (Number.isNaN(paidForDate.getTime()) || Number.isNaN(paidAtDate.getTime())) {
-        continue;
-      }
-      if (paidForDate.getFullYear() !== selectedYear) {
-        continue;
-      }
-      if (!latestPaidAt || paidAtDate > latestPaidAt) {
-        latestPaidAt = paidAtDate;
-      }
-    }
-
-    return latestPaidAt ? latestPaidAt.toLocaleDateString("bg-BG") : null;
-  };
-
-  const formatPaymentAmount = (value: string | null): string => {
-    if (!value) return "€0.00";
-    const parsed = Number(value.replace(",", "."));
-    return Number.isFinite(parsed) ? `€${parsed.toFixed(2)}` : "€0.00";
-  };
-
   const normalizePlayerName = (name: string) =>
     name.normalize("NFC").toLocaleLowerCase("bg-BG").trim().replace(/\s+/g, " ");
   const searchTerms = normalizePlayerName(playerSearch).split(" ").filter(Boolean);
@@ -1069,7 +1032,12 @@ function ReportsDialog({
       id: player.id,
       name: player.fullName,
       group: player.teamGroup,
-      amount: formatPaymentAmount(player.paymentAmount),
+      amount: formatRecordedPaymentAmounts(player.paymentLogs.filter((log) => {
+        const period = new Date(log.paidFor);
+        const paidAt = new Date(log.paidAt);
+        return period.getUTCFullYear() === selectedYear && period.getUTCMonth() === selectedMonthIdx &&
+          !Number.isNaN(paidAt.getTime()) && paidAt <= now;
+      })),
       date: paidDate ?? "—",
       paid: Boolean(paidDate),
       isActive: player.isActive !== false,
@@ -1077,15 +1045,11 @@ function ReportsDialog({
   });
 
   const rowsYearly = reportPlayers.map((player) => {
-    const paidDate = getPaymentDateForYear(player);
     return {
       id: player.id,
       name: player.fullName,
-      group: player.teamGroup,
-      amount: formatPaymentAmount(player.paymentAmount),
-      date: paidDate ?? "—",
-      paid: Boolean(paidDate),
       isActive: player.isActive !== false,
+      ...buildYearlyPaymentReport(player, selectedYear, now),
     };
   });
 
@@ -1101,8 +1065,8 @@ function ReportsDialog({
   });
 
   const filteredYearly = rowsYearly.filter((row) => {
-    if (statusFilter === "paid") return row.paid;
-    if (statusFilter === "unpaid") return !row.paid;
+    if (statusFilter === "paid") return row.status === "paid";
+    if (statusFilter === "unpaid") return row.status === "unpaid";
     return true;
   });
 
@@ -1115,10 +1079,9 @@ function ReportsDialog({
       .replace(/'/g, "&#39;");
 
   const printReport = (kind: ReportKind) => {
-    const baseRows = kind === "monthly" ? rows : rowsYearly;
-    const rowsToPrint = kind === "monthly" ? filtered : filteredYearly;
-    const paid = baseRows.filter((row) => row.paid).length;
-    const totalRows = baseRows.length;
+    const yearly = kind === "yearly";
+    const paid = yearly ? rowsYearly.reduce((sum, row) => sum + row.paidDueCount, 0) : paidCount;
+    const totalRows = yearly ? rowsYearly.reduce((sum, row) => sum + row.dueCount, 0) : rows.length;
     const percent = totalRows > 0 ? Math.round((paid / totalRows) * 100) : 0;
     const unpaid = totalRows - paid;
     const periodTitle = kind === "monthly" ? `${month} ${year}` : `Година ${year}`;
@@ -1132,8 +1095,17 @@ function ReportsDialog({
 
     if (typeof window === "undefined") return;
 
-    const tableRowsHtml = rowsToPrint.length > 0
-      ? rowsToPrint
+    const monthLabels = { paid: "Платено", unpaid: "Неплатено", exempt: "Освободен", not_due: "Не се дължи" };
+    const yearlyStatusLabels = { paid: "Всички дължими такси са платени", unpaid: "Има неплатени такси", not_due: "Няма дължими такси", activity: "Платежна активност" };
+    const tableRowsHtml = yearly
+      ? filteredYearly.length > 0 ? filteredYearly.map((row, idx) => `
+          <tr><td>${idx + 1}</td><td>${escapeHtml(row.name)}${row.isActive ? "" : " (неактивен)"}</td>
+          ${row.months.map((month) => `<td>${!row.calendarBilling && month.status === "not_due" ? "—" : monthLabels[month.status]}${month.paidAt ? `<br><strong>${escapeHtml(month.amountLabel)}</strong><br><small>${escapeHtml(month.paidAt.toLocaleDateString("bg-BG", { timeZone: "Europe/Sofia" }))}</small>` : ""}</td>`).join("")}
+          <td>${row.calendarBilling ? `${row.paidDueCount} / ${row.dueCount}` : "—"}</td>
+          <td>${row.calendarBilling ? row.missingCount : "—"}</td><td>${escapeHtml(row.totalAmountLabel)}</td><td>${yearlyStatusLabels[row.status]}</td></tr>
+        `).join("") : `<tr><td colspan="18" style="text-align:center;">Няма данни за избраните филтри.</td></tr>`
+      : filtered.length > 0
+      ? filtered
         .map((row, idx) => `
             <tr>
               <td>${idx + 1}</td>
@@ -1161,7 +1133,8 @@ function ReportsDialog({
     table { width: 100%; border-collapse: collapse; font-size: 13px; }
     th, td { border: 1px solid #e5e7eb; padding: 7px 8px; text-align: left; }
     th { background: #f9fafb; }
-    @media print { .pt { display: none; } @page { margin: 10mm; } }
+    ${yearly ? "table { font-size: 9px; } th, td { padding: 4px; }" : ""}
+    @media print { .pt { display: none; } @page { ${yearly ? "size: A3 landscape;" : ""} margin: 10mm; } }
   </style>
 </head>
 <body>
@@ -1172,14 +1145,16 @@ function ReportsDialog({
   <div style="font-size:22px;font-weight:700;margin:0 0 4px;">${kind === "monthly" ? "Месечен отчет" : "Годишен отчет"}</div>
   <p style="margin:0 0 14px;color:#6b7280;font-size:13px;">Период: ${escapeHtml(periodTitle)}</p>
   ${scopeTitle ? `<p style="margin:0 0 14px;color:#6b7280;font-size:13px;">${escapeHtml(scopeTitle)}</p>` : ""}
+  ${yearly ? `<p style="font-size:12px;">Към ${escapeHtml(now.toLocaleDateString("bg-BG", { timeZone: "Europe/Sofia" }))}. Платени / дължими месечни такси; бъдещите месеци, освобождаванията и месеците преди началото на таксуване не участват в събираемостта. Предплатените месеци са показани, но участват в събираемостта, когато станат дължими. Филтър: ${statusFilter === "all" ? "Всички" : statusFilter === "paid" ? "Всички дължими такси са платени" : "Има неплатени такси"}. Обобщението обхваща всички избрани играчи преди филтъра за статус.</p>
+  <p style="font-size:12px;">Сумите са записаните при плащане стойности, а не текущата такса на играча. Старите плащания без записана сума са обозначени като неизвестни и не се приемат за нула. Общите суми обхващат показаната година по платения период, включително предплатените месеци. За таксуване извън календарни месеци се показва само платежна активност, без оценка на задълженията. Историческите промени в членството и групите не са налични; използват се текущите играчи и групи.</p>` : ""}
   <div style="display:flex;gap:12px;margin:0 0 16px;flex-wrap:wrap;">
-    <div style="border:1px solid #e5e7eb;border-radius:8px;padding:8px 10px;font-size:13px;min-width:140px;">Платили: <strong>${paid}</strong> / ${totalRows}</div>
-    <div style="border:1px solid #e5e7eb;border-radius:8px;padding:8px 10px;font-size:13px;min-width:140px;">Събираемост: <strong>${percent}%</strong></div>
-    <div style="border:1px solid #e5e7eb;border-radius:8px;padding:8px 10px;font-size:13px;min-width:140px;">Неплатили: <strong>${unpaid}</strong></div>
+    <div style="border:1px solid #e5e7eb;border-radius:8px;padding:8px 10px;font-size:13px;min-width:140px;">${yearly ? "Платени / дължими такси" : "Платили"}: <strong>${paid}</strong> / ${totalRows}</div>
+    <div style="border:1px solid #e5e7eb;border-radius:8px;padding:8px 10px;font-size:13px;min-width:140px;">Събираемост: <strong>${yearly && totalRows === 0 ? "—" : `${percent}%`}</strong></div>
+    <div style="border:1px solid #e5e7eb;border-radius:8px;padding:8px 10px;font-size:13px;min-width:140px;">${yearly ? "Неплатени такси" : "Неплатили"}: <strong>${unpaid}</strong></div>
   </div>
   <table>
     <thead>
-      <tr><th>#</th><th>Име</th><th>Сума</th><th>Дата на плащане</th><th>Статус</th></tr>
+      ${yearly ? `<tr><th>#</th><th>Име</th>${MONTHS.map((name) => `<th>${escapeHtml(name)}</th>`).join("")}<th>Платени / дължими</th><th>Неплатени</th><th>Общо платено</th><th>Статус</th></tr>` : "<tr><th>#</th><th>Име</th><th>Платена сума</th><th>Дата на плащане</th><th>Статус</th></tr>"}
     </thead>
     <tbody>${tableRowsHtml}</tbody>
   </table>
@@ -1639,6 +1614,7 @@ function MemberDetailModal({
   isDeletingPermanent = false,
   coachGroups,
   onCoachGroupAssigned,
+  onFeeConflict,
 }: {
   member: Member;
   onClose: () => void;
@@ -1653,6 +1629,7 @@ function MemberDetailModal({
   isDeletingPermanent?: boolean;
   coachGroups?: CoachGroup[];
   onCoachGroupAssigned?: (memberId: string, coachGroupIds: string[]) => void;
+  onFeeConflict?: (memberId: string, coachGroupIds: string[]) => void;
 }) {
   const s = getStatusMeta(member.status);
   const [historyOpen, setHistoryOpen] = useState(false);
@@ -2000,6 +1977,9 @@ function MemberDetailModal({
                               });
                               if (!response.ok) {
                                 const payload = await response.json().catch(() => ({}));
+                                if (response.status === 409 && payload.conflicts?.length && onFeeConflict) {
+                                  onFeeConflict(member.id, assignCoachGroupValue); return;
+                                }
                                 throw new Error(String((payload as { error?: unknown }).error ?? "Грешка"));
                               }
                               onCoachGroupAssigned?.(member.id, assignCoachGroupValue);
@@ -2269,7 +2249,7 @@ function ConfirmDeleteModal({
             Сигурен ли си, че искаш да премахнеш <strong>{member.fullName}</strong>?
           </p>
           <p className="amp-confirm-subtext">
-            грачът ще бъде маркиран като неактивен.
+            Играчът ще бъде маркиран като неактивен.
           </p>
 
           {error && <p className="amp-confirm-error">{error}</p>}
@@ -2405,6 +2385,7 @@ function PlayerCard({
 
 function InactivePlayersModal({
   members,
+  isCovered = false,
   isReactivating,
   reactivatingMemberId,
   isDeletingPermanent,
@@ -2414,8 +2395,10 @@ function InactivePlayersModal({
   onSelectMember,
   onReactivate,
   onPermanentDelete,
+  onBulkDelete,
 }: {
   members: Member[];
+  isCovered?: boolean;
   isReactivating: boolean;
   reactivatingMemberId: string | null;
   isDeletingPermanent: boolean;
@@ -2425,35 +2408,77 @@ function InactivePlayersModal({
   onSelectMember: (member: Member) => void;
   onReactivate: (member: Member) => void;
   onPermanentDelete: (member: Member) => void;
+  onBulkDelete: (members: Member[]) => Promise<void>;
 }) {
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [confirmBulkDelete, setConfirmBulkDelete] = useState(false);
+  const [isBulkDeleting, setIsBulkDeleting] = useState(false);
+  const selectedMembers = members.filter((member) => selectedIds.has(member.id));
+  const allSelected = members.length > 0 && selectedMembers.length === members.length;
+  const busy = isReactivating || isDeletingPermanent || isBulkDeleting;
+  const close = () => { if (!busy) onClose(); };
+
   return (
-    <div className="amp-overlay" onClick={onClose}>
+    <div className="amp-overlay amp-overlay--inactive" onClick={close} inert={isCovered} aria-hidden={isCovered || undefined}>
       <div className="amp-modal amp-modal--inactive" onClick={(e) => e.stopPropagation()}>
         <div className="amp-modal-tint" aria-hidden="true" />
         <h2 className="amp-modal-title">
           <span className="amp-modal-title-gradient">Неактивни състезатели</span>
-          <button className="amp-modal-close" onClick={onClose} aria-label="Затвори">
+          <button className="amp-modal-close" onClick={close} aria-label="Затвори" disabled={busy}>
             <XIcon />
           </button>
         </h2>
 
-        <div className="amp-modal-body">
-          {error && <p className="amp-confirm-error">{error}</p>}
+        <div className="amp-inactive-toolbar">
+          <button type="button" className="amp-btn amp-btn--ghost" disabled={busy || members.length === 0 || confirmBulkDelete}
+            onClick={() => setSelectedIds(allSelected ? new Set() : new Set(members.map((member) => member.id)))}>
+            {allSelected ? "Отмени избора" : "Избери всички"}
+          </button>
+          <button type="button" className="amp-btn amp-btn--danger" disabled={busy || selectedMembers.length === 0 || confirmBulkDelete}
+            onClick={() => setConfirmBulkDelete(true)}>
+            {isBulkDeleting ? "Изтриване..." : `Изтрий избраните (${selectedMembers.length})`}
+          </button>
+          {confirmBulkDelete && (
+            <div className="amp-inactive-confirm" role="alert">
+              <p>Да изтрием ли завинаги избраните състезатели ({selectedMembers.length}) и свързаните данни? Действието е необратимо.</p>
+              <button type="button" className="amp-btn amp-btn--ghost" disabled={busy} onClick={() => setConfirmBulkDelete(false)}>Отказ</button>
+              <button type="button" className="amp-btn amp-btn--danger" disabled={busy || selectedMembers.length === 0} onClick={async () => {
+                setIsBulkDeleting(true);
+                try { await onBulkDelete(selectedMembers); }
+                finally { setIsBulkDeleting(false); setConfirmBulkDelete(false); }
+              }}>Изтрий завинаги</button>
+            </div>
+          )}
+          {error && <p className="amp-confirm-error" role="alert">{error}</p>}
+        </div>
+        <div className="amp-modal-body amp-inactive-list" aria-label="Неактивни състезатели" tabIndex={0}>
           {members.length === 0 ? (
             <p className="amp-empty amp-empty--modal">Няма неактивни състезатели</p>
           ) : (
             <div className="amp-cards">
               {members.map((member) => (
+                <div className={`amp-inactive-player${selectedIds.has(member.id) ? " is-selected" : ""}`} key={member.id}>
+                  <label className="amp-inactive-check">
+                  <input type="checkbox" aria-label={`Избери ${member.fullName}`} checked={selectedIds.has(member.id)} disabled={busy || confirmBulkDelete}
+                    onChange={() => setSelectedIds((previous) => {
+                      const next = new Set(previous);
+                      if (next.has(member.id)) next.delete(member.id); else next.add(member.id);
+                      return next;
+                    })} />
+                    <span className="amp-inactive-check-mark" aria-hidden="true">
+                      <svg viewBox="0 0 20 20" fill="none"><path d="m5 10 3 3 7-7" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>
+                    </span>
+                  </label>
                 <PlayerCard
-                  key={member.id}
                   member={member}
-                  onClick={() => onSelectMember(member)}
+                  onClick={() => { if (!busy && !confirmBulkDelete) onSelectMember(member); }}
                   actionMode="reactivate"
                   isActionLoading={isReactivating && reactivatingMemberId === member.id}
-                  onReactivate={() => onReactivate(member)}
+                  onReactivate={() => { if (!busy && !confirmBulkDelete) onReactivate(member); }}
                   isDeleteLoading={isDeletingPermanent && deletingPermanentMemberId === member.id}
-                  onPermanentDelete={() => onPermanentDelete(member)}
+                  onPermanentDelete={() => { if (!busy && !confirmBulkDelete) onPermanentDelete(member); }}
                 />
+                </div>
               ))}
             </div>
           )}

@@ -1,3 +1,5 @@
+import { resolveMemberFee, feeConflictMessage } from "@/lib/memberFee";
+import { FeeSettingsError } from "@/lib/clubFees";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma, withPrismaPoolRetry } from "@/lib/db";
 import { verifyAdminToken } from "@/lib/adminAuth";
@@ -266,60 +268,69 @@ export async function PUT(
       nextAdminImageUrl.length > 0 &&
       nextAdminImageUrl !== currentAdminImagePath;
 
-    const updatedPlayer = await prisma.player.update({
-      where: { id },
-      data: {
-        fullName,
-        ...(clubId ? { clubId } : {}),
-        jerseyNumber:
-          jerseyNumberRaw === null || jerseyNumberRaw === undefined || jerseyNumberRaw === ""
-            ? null
-            : String(jerseyNumberRaw),
-        ...(hasParentPhone
-          ? {
-              parentPhone:
-                parentPhoneRaw === null || parentPhoneRaw === undefined || parentPhoneRaw === ""
-                  ? null
-                  : nextParentPhone,
-            }
-          : {}),
-        ...(hasPlayerPhone
-          ? {
-              playerPhone:
-                playerPhoneRaw === null || playerPhoneRaw === undefined || playerPhoneRaw === ""
-                  ? null
-                  : nextPlayerPhone,
-            }
-          : {}),
-        teamGroup,
-        birthDate,
-        ...(shouldSwitchAdminImage
-          ? {
-              images: {
-                updateMany: {
-                  where: { isAdminView: true },
-                  data: { isAdminView: false },
+    const updatedPlayer = await prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM clubs WHERE id = ${existingPlayer.clubId}::uuid FOR UPDATE`;
+      const current = await tx.player.findUniqueOrThrow({ where: { id }, include: { coachGroups: true, club: true } });
+      const targetClub = clubId && clubId !== current.clubId ? await tx.club.findUniqueOrThrow({ where: { id: clubId } }) : current.club;
+      if (clubId && clubId !== current.clubId && current.coachGroups.length) throw new FeeSettingsError("Премахнете групите на състезателя преди смяна на клуба.");
+      if (resolveMemberFee({ ...current, paymentAmount: paymentAmountUpdate ?? current.paymentAmount }, targetClub.defaultPaymentAmount).source === "conflict") {
+        throw new FeeSettingsError(feeConflictMessage, 409);
+      }
+      return tx.player.update({
+        where: { id },
+        data: {
+          fullName,
+          ...(clubId ? { clubId } : {}),
+          jerseyNumber:
+            jerseyNumberRaw === null || jerseyNumberRaw === undefined || jerseyNumberRaw === ""
+              ? null
+              : String(jerseyNumberRaw),
+          ...(hasParentPhone
+            ? {
+                parentPhone:
+                  parentPhoneRaw === null || parentPhoneRaw === undefined || parentPhoneRaw === ""
+                    ? null
+                    : nextParentPhone,
+              }
+            : {}),
+          ...(hasPlayerPhone
+            ? {
+                playerPhone:
+                  playerPhoneRaw === null || playerPhoneRaw === undefined || playerPhoneRaw === ""
+                    ? null
+                    : nextPlayerPhone,
+              }
+            : {}),
+          teamGroup,
+          birthDate,
+          ...(shouldSwitchAdminImage
+            ? {
+                images: {
+                  updateMany: {
+                    where: { isAdminView: true },
+                    data: { isAdminView: false },
+                  },
+                  create: {
+                    imageUrl: nextAdminImageUrl,
+                    isAdminView: true,
+                  },
                 },
-                create: {
-                  imageUrl: nextAdminImageUrl,
-                  isAdminView: true,
-                },
-              },
-            }
-          : {}),
-        ...(status ? { status } : {}),
-        ...(firstBillingMonthUpdate !== undefined ? { firstBillingMonth: firstBillingMonthUpdate } : {}),
-        ...(paymentAmountUpdate !== undefined ? { paymentAmount: paymentAmountUpdate } : {}),
-      },
-      include: {
-        cards: { orderBy: { createdAt: "desc" } },
-        paymentLogs: {
-          orderBy: { paidFor: "desc" },
-          take: 1,
+              }
+            : {}),
+          ...(status ? { status } : {}),
+          ...(firstBillingMonthUpdate !== undefined ? { firstBillingMonth: firstBillingMonthUpdate } : {}),
+          ...(paymentAmountUpdate !== undefined ? { paymentAmount: paymentAmountUpdate } : {}),
         },
-        club: true,
-        images: true,
-      },
+        include: {
+          cards: { orderBy: { createdAt: "desc" } },
+          paymentLogs: {
+            orderBy: { paidFor: "desc" },
+            take: 1,
+          },
+          club: true,
+          images: true,
+        },
+      });
     });
 
     const cloudName = process.env.CLOUDINARY_CLOUD_NAME ?? "";
@@ -350,6 +361,7 @@ export async function PUT(
       imagePublicId: null,
     });
   } catch (error) {
+    if (error instanceof FeeSettingsError) return NextResponse.json({ error: error.message }, { status: error.status });
     console.error("Member update error:", error);
     return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });
   }

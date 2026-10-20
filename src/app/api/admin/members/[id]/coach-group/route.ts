@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
+import { updateClubFees, FeeSettingsError } from "@/lib/clubFees";
 import { verifyAdminToken } from "@/lib/adminAuth";
 
 export const runtime = "nodejs";
@@ -59,13 +60,14 @@ export async function PATCH(
     }
   }
 
-  await prisma.player.update({
-    where: { id },
-    data: { coachGroups: {
-      disconnect: player.coachGroups.filter((group) => !coachGroupIds.includes(group.id)).map((group) => ({ id: group.id })),
-      connect: coachGroupIds.filter((gid) => !player.coachGroups.some((group) => group.id === gid)).map((gid) => ({ id: gid })),
-    } },
-  });
-
-  return NextResponse.json({ success: true, id, coachGroupIds });
+  try {
+    await updateClubFees(player.clubId, {
+      assignments: { [id]: coachGroupIds },
+      ...((body as { billingCoachGroupId?: string }).billingCoachGroupId ? { billingChoices: { [id]: (body as { billingCoachGroupId: string }).billingCoachGroupId } } : {}),
+    });
+    return NextResponse.json({ success: true, id, coachGroupIds });
+  } catch (error) {
+    if (error instanceof FeeSettingsError) return NextResponse.json({ error: error.message, conflicts: error.conflicts }, { status: error.status });
+    throw error;
+  }
 }

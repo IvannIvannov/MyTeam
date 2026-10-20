@@ -1,3 +1,5 @@
+import { matchEventTypeLabel } from "@/lib/matchEventType";
+import { TRAINING_SELECTION_WINDOW_DAYS } from "@/lib/trainingScheduleWindow";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { verifyAdminToken } from "@/lib/adminAuth";
@@ -7,7 +9,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const FIXED_TIME_ZONE = "Europe/Sofia";
-const TRAINING_SELECTION_WINDOW_DAYS = 30;
+
 const WEEK_DAYS = 7;
 
 function isTransientPrismaConnectionError(error: unknown) {
@@ -166,7 +168,7 @@ export async function GET(
       }),
       prisma.clubMatch.findMany({
         where: { clubId: id, matchDate: { in: dates } },
-        select: { id: true, opponent: true, location: true, matchDate: true, matchTime: true, teamGroups: true, isHome: true, durationMinutes: true, customGroupId: true, customGroup: { select: { name: true, color: true } } },
+        select: { id: true, eventType: true, opponent: true, location: true, matchDate: true, matchTime: true, teamGroups: true, isHome: true, durationMinutes: true, customGroupId: true, customGroup: { select: { name: true, color: true } } },
       }),
       prisma.limitedTrainingEvent.findMany({
         where: { clubId: id, trainingDate: { in: dates.map((d) => new Date(d + "T00:00:00.000Z")) } },
@@ -238,7 +240,7 @@ export async function GET(
           trainingTime: match.matchTime,
           scopeType: "teamGroup",
           eventType: "match",
-          label: match.opponent,
+          label: `${matchEventTypeLabel(match.eventType)} · ${match.opponent}`,
           teamGroups: match.teamGroups,
           location: match.location,
           scopeLabel: match.customGroup?.name ?? resolveMatchScopeLabel(match.teamGroups, []),
@@ -349,7 +351,7 @@ export async function GET(
         trainingTime: match.matchTime,
         scopeType: "teamGroup",
         eventType: "match",
-        label: match.opponent,
+        label: `${matchEventTypeLabel(match.eventType)} · ${match.opponent}`,
         teamGroups: match.teamGroups,
         location: match.location,
         scopeLabel: match.customGroup?.name ?? resolveMatchScopeLabel(match.teamGroups, trainingGroups),
