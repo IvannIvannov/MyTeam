@@ -2580,6 +2580,40 @@ dialog.pm-modal::backdrop {
 }
 
 /* Selected summary */
+.pm-delete-confirm-body {
+  padding: 8px 0 12px;
+  text-align: center;
+}
+
+.pm-delete-confirm-question {
+  max-width: 340px;
+  margin: 0 auto;
+  color: rgba(255, 255, 255, 0.88);
+  font-size: 16px;
+  font-weight: 500;
+  line-height: 1.65;
+  text-wrap: balance;
+}
+
+.pm-delete-confirm-months {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 20px;
+}
+
+.pm-delete-confirm-month {
+  padding: 8px 16px;
+  border: 1px solid rgba(255, 107, 107, 0.22);
+  border-radius: 999px;
+  background: rgba(255, 107, 107, 0.08);
+  color: #ffaaaa;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.5;
+}
+
 .pm-selected-summary {
   position: relative;
   z-index: 1;
