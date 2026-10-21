@@ -1,12 +1,24 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { setLimitedSessionAttendance } from "./limitedTrainingSession";
-const mocks = vi.hoisted(() => ({ club: { findUniqueOrThrow: vi.fn() }, player: { findMany: vi.fn() }, trainingSession: { findFirst: vi.fn() }, trainingSessionPlayer: { createMany: vi.fn(), updateMany: vi.fn() } }));
+const mocks = vi.hoisted(() => ({ $transaction: vi.fn(), $queryRaw: vi.fn(), club: { findUniqueOrThrow: vi.fn() }, player: { findMany: vi.fn() }, trainingSession: { findFirst: vi.fn() }, trainingSessionPlayer: { createMany: vi.fn(), updateMany: vi.fn() } }));
 vi.mock("@/lib/db", () => ({ prisma: mocks }));
 const groupId = "10000000-0000-4000-8000-000000000001";
 const firstId = "10000000-0000-4000-8000-000000000002";
 const secondId = "10000000-0000-4000-8000-000000000003";
 describe("limited places and per-session attendance", () => {
-  beforeEach(() => { vi.clearAllMocks(); mocks.club.findUniqueOrThrow.mockResolvedValue({ paymentWorkflow: "calendar_month" }); mocks.player.findMany.mockResolvedValue([{ id: "player", fullName: "Player", teamGroup: 2015 }]); mocks.trainingSession.findFirst.mockResolvedValue({ id: firstId }); });
+  beforeEach(() => { vi.clearAllMocks(); mocks.$transaction.mockImplementation(async (callback) => callback(mocks)); mocks.club.findUniqueOrThrow.mockResolvedValue({ paymentWorkflow: "calendar_month" }); mocks.player.findMany.mockResolvedValue([{ id: "player", fullName: "Player", teamGroup: 2015 }]); mocks.trainingSession.findFirst.mockResolvedValue({ id: firstId }); });
+  it("does not create a new roster row during promotion into a locked session", async () => {
+    mocks.trainingSession.findFirst.mockResolvedValue({ rosterLockedAt: new Date(), players: [] });
+    expect(await setLimitedSessionAttendance("club", `coach_group:${groupId}:session:${secondId}`, ["player"], true)).toBe(true);
+    expect(mocks.trainingSessionPlayer.createMany).not.toHaveBeenCalled();
+    expect(mocks.trainingSessionPlayer.updateMany).not.toHaveBeenCalled();
+  });
+  it("allows existing locked roster attendance to change without creating rows", async () => {
+    mocks.trainingSession.findFirst.mockResolvedValue({ rosterLockedAt: new Date(), players: [{ playerId: "player" }] });
+    await setLimitedSessionAttendance("club", `coach_group:${groupId}:session:${secondId}`, ["player"], false);
+    expect(mocks.trainingSessionPlayer.createMany).not.toHaveBeenCalled();
+    expect(mocks.trainingSessionPlayer.updateMany).toHaveBeenCalledOnce();
+  });
   it.each(["training_credits", "training_credits_30_days"])("keeps confirmed reservations separate from attendance for %s", async (paymentWorkflow) => {
     mocks.club.findUniqueOrThrow.mockResolvedValue({ paymentWorkflow });
     await setLimitedSessionAttendance("club", `coach_group:${groupId}:session:${secondId}`, ["player"], true);

@@ -529,8 +529,10 @@ export async function GET(
       clubId: id,
       isActive: true,
       ...(customTrainingGroup ? { id: { in: Array.from(new Set([...customPlayerIds, ...lockedPlayerIds])) } } : {}),
-      ...(trainingGroup ? { teamGroup: { in: trainingGroup.teamGroups } } : {}),
-      ...(teamGroup !== null ? { teamGroup } : {}),
+      ...(trainingGroup || teamGroup !== null ? { OR: [
+        trainingGroup ? { teamGroup: { in: trainingGroup.teamGroups } } : { teamGroup },
+        { id: { in: lockedPlayerIds } },
+      ] } : {}),
     },
     select: {
       id: true,
@@ -592,6 +594,8 @@ export async function GET(
     const entry = attendanceSessionByDate.get(date);
     if (entry?.rosterLockedAt) return entry.players.some((row) => row.playerId === player.id);
     if (customTrainingGroup && !customPlayerIds.includes(player.id)) return false;
+    if (trainingGroup && (player.teamGroup === null || !trainingGroup.teamGroups.includes(player.teamGroup))) return false;
+    if (teamGroup !== null && player.teamGroup !== teamGroup) return false;
     return isEligibleForMembership(player, date, entry?.trainingTime ?? storedSessionByDate.get(date)?.trainingTime ?? resolvedTrainingDateTimes[date] ?? resolvedDefaultTrainingTime, scopeKey);
   });
   for (const item of allOptOuts) {

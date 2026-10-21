@@ -65,6 +65,20 @@ describe("limited-place reservation → training-credit check-in", () => {
     mocks.$transaction.mockImplementation(async (callback) => callback(mocks));
   });
   afterEach(() => vi.useRealTimers());
+  it("rejects new reservations on a locked historical roster before writing registrations", async () => {
+    mocks.trainingSession.findFirst.mockResolvedValue({ ...training, rosterLockedAt: new Date(), players: [] });
+    expect((await reserve(registrationRequest("POST"), context())).status).toBe(403);
+    expect(mocks.limitedTrainingRegistration.create).not.toHaveBeenCalled();
+    expect(mocks.trainingSessionPlayer.createMany).not.toHaveBeenCalled();
+  });
+  it("allows an existing locked roster member to reserve and cancel without creating attendance", async () => {
+    mocks.trainingSession.findFirst.mockResolvedValue({ ...training, rosterLockedAt: new Date(), players: [{ playerId }] });
+    expect((await reserve(registrationRequest("POST"), context())).status).toBe(200);
+    expect(mocks.trainingSessionPlayer.createMany).not.toHaveBeenCalled();
+    expect((await cancel(registrationRequest("DELETE"), context())).status).toBe(200);
+    expect(mocks.trainingSessionPlayer.createMany).not.toHaveBeenCalled();
+    expect(credits).toBe(2);
+  });
 
   it.each(["training_credits", "training_credits_30_days"])("a confirmed %s reservation remains selectable and charges once on check-in", async (paymentWorkflow) => {
     workflow = paymentWorkflow;
