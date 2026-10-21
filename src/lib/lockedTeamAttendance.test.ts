@@ -62,6 +62,26 @@ it.each([
         expect(current.attendance["2026-10-22"]).toBeDefined();
       }
     }
+    for (const includeLockedHistory of [true, false]) {
+      mocks.sessions.mockResolvedValue([
+        ...(includeLockedHistory ? [session] : []),
+        { ...session, id: "recorded", trainingDate: new Date("2026-10-22"), rosterLockedAt: null, players: [
+          { playerId: "old", present, attendanceRecorded: true, reasonCode: present ? null : "sick" },
+          { playerId: "new", present: true },
+        ] },
+        { ...session, id: "inferred", trainingDate: new Date("2026-10-23"), rosterLockedAt: null, players: [
+          { playerId: "old", present: true, attendanceRecorded: false },
+        ] },
+      ]);
+      mocks.optOuts.mockResolvedValue([]);
+      const response = await report(new NextRequest(`http://localhost/report?${filter}&from=${date}&to=2026-10-23`, { headers: { cookie: "admin_session=test" } }), { params: Promise.resolve({ id: "club" }) });
+      expect(response.status).toBe(200);
+      const data = await response.json();
+      const old = data.players.find((player: { id: string }) => player.id === "old");
+      expect(old).toBeDefined();
+      expect(old.attendance["2026-10-22"]).toEqual({ present, reasonCode: present ? null : "sick" });
+      expect(old.attendance["2026-10-23"]).toBeUndefined();
+    }
     mocks.optOuts.mockResolvedValue([]);
     mocks.sessions.mockResolvedValue([session, { ...session, id: "next", trainingDate: new Date("2026-10-22"), rosterLockedAt: null, players: [{ playerId: "new", present: true }] }]);
   }

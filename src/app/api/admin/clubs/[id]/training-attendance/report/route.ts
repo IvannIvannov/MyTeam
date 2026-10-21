@@ -340,7 +340,9 @@ export async function GET(
       ...(playerCustomGroups.length > 0 ? playerGroupDates : [trainingDates]),
       storedSessionDates,
     );
-    const lockedPlayerIds = storedSessions.filter((entry) => entry.rosterLockedAt).flatMap((entry) => entry.players.flatMap((row) => row.playerId ? [row.playerId] : []));
+    const preservedPlayerIds = storedSessions.flatMap((entry) => entry.players.flatMap((row) =>
+      row.playerId && (entry.rosterLockedAt || row.attendanceRecorded) ? [row.playerId] : [],
+    ));
 
     const players = targetPlayer
       ? [targetPlayer]
@@ -354,7 +356,7 @@ export async function GET(
             ],
             ...(trainingGroup || teamGroup !== null ? { OR: [
               trainingGroup ? { teamGroup: { in: trainingGroup.teamGroups } } : { teamGroup },
-              { id: { in: lockedPlayerIds } },
+              { id: { in: preservedPlayerIds } },
             ] } : {}),
           },
           select: { id: true, fullName: true, teamGroup: true, createdAt: true, attendanceStartedAt: true, attendanceMemberships: true },
@@ -394,6 +396,7 @@ export async function GET(
       // A locked roster is the historical membership snapshot, even when its
       // corrected start time falls outside the player's enrollment period.
       if (session.rosterLockedAt) return Boolean(row);
+      if (row?.attendanceRecorded) return true;
       if (!belongsToCurrentTeam(player)) return false;
       return isEligibleForMembership(player, utcDateToIsoDate(session.trainingDate), session.trainingTime, session.scopeKey ?? scopeKey, row?.attendanceRecorded);
     };
