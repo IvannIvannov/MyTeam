@@ -2,7 +2,7 @@ import { TRAINING_SELECTION_WINDOW_DAYS } from "@/lib/trainingScheduleWindow";
 import { trainingRequiresCheckIn } from "@/lib/trainingAttendanceDefaults";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { isEligibleForMembership } from "@/lib/attendanceEligibility";
+import { isEligibleForMembership, isEligibleForTraining } from "@/lib/attendanceEligibility";
 import { publishMemberUpdated } from "@/lib/memberEvents";
 import { verifyAdminToken } from "@/lib/adminAuth";
 import { publishTrainingAttendanceUpdated } from "@/lib/trainingAttendanceEvents";
@@ -192,12 +192,20 @@ export async function GET(
     const now = new Date();
     const localNow = new Intl.DateTimeFormat("sv-SE", { timeZone: FIXED_TIME_ZONE, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23" }).format(now).replace(" ", "T");
     for (const entry of rows) {
+      if (entry.rosterLockedAt) continue;
       const date = utcDateToIsoDate(entry.trainingDate);
       if (`${date}T${entry.trainingTime ?? "00:00"}:00` < localNow) continue;
       const missing = members.filter((member) => isEligibleForMembership(member, date, entry.trainingTime, `coach_group:${scopeId}`) && !entry.players.some((p) => p.playerId === member.id));
       if (!missing.length) continue;
-      await prisma.trainingSessionPlayer.createMany({ data: missing.map((member) => ({ trainingSessionId: entry.id, playerId: member.id, playerName: member.fullName, teamGroup: member.teamGroup, present: !trainingRequiresCheckIn(rosterClub?.paymentWorkflow) })), skipDuplicates: true });
-      const refreshed = await prisma.trainingSession.findFirst({ where: { id: entry.id }, include });
+      const refreshed = await prisma.$transaction(async (tx) => {
+        // Serialize repair with schedule edits, then recheck the current lock.
+        await tx.$queryRaw`SELECT id FROM training_sessions WHERE id = ${entry.id}::uuid FOR UPDATE`;
+        const current = await tx.trainingSession.findFirst({ where: { id: entry.id, clubId: id, status: "scheduled" }, include });
+        if (!current || current.rosterLockedAt || !isEligibleForTraining(new Date(), utcDateToIsoDate(current.trainingDate), current.trainingTime)) return current;
+        const eligible = missing.filter((member) => isEligibleForMembership(member, utcDateToIsoDate(current.trainingDate), current.trainingTime, current.scopeKey));
+        await tx.trainingSessionPlayer.createMany({ data: eligible.map((member) => ({ trainingSessionId: entry.id, playerId: member.id, playerName: member.fullName, teamGroup: member.teamGroup, present: !trainingRequiresCheckIn(rosterClub?.paymentWorkflow) })), skipDuplicates: true });
+        return tx.trainingSession.findFirst({ where: { id: entry.id }, include });
+      });
       if (refreshed) entry.players = refreshed.players;
     }
     const attendanceStats = (players: { playerId: string | null; present: boolean }[]) => {

@@ -7,11 +7,15 @@ vi.mock("@/lib/adminAuth", () => ({ verifyAdminToken: mocks.auth }));
 vi.mock("@/lib/memberEvents", () => ({ publishMemberUpdated: vi.fn() }));
 vi.mock("@/lib/trainingAttendanceEvents", () => ({ publishTrainingAttendanceUpdated: vi.fn() }));
 vi.mock("@/lib/push/service", () => ({ sendPushToMember: vi.fn() }));
-vi.mock("@/lib/db", () => ({ prisma: {
+vi.mock("@/lib/db", () => {
+  const db = {
+  $queryRaw: vi.fn(),
   club: { findUnique: vi.fn().mockResolvedValue({ paymentWorkflow: "calendar" }) },
   trainingSession: { findMany: mocks.sessions, findFirst: mocks.refreshed }, player: { findMany: mocks.players },
   trainingSessionPlayer: { createMany: mocks.enroll },
-} }));
+  };
+  return { prisma: { ...db, $transaction: async (callback: (tx: typeof db) => unknown) => callback(db) } };
+});
 
 const coachId = "11111111-1111-4111-8111-111111111111";
 beforeEach(() => {
@@ -25,12 +29,13 @@ afterEach(() => vi.useRealTimers());
 
 it("includes a newly registered coach-group member in an existing future session", async () => {
   mocks.sessions.mockResolvedValue([{
-    id: "future-session", scopeId: coachId, trainingDate: new Date("2026-10-21T00:00:00Z"),
+    id: "future-session", scopeId: coachId, scopeKey: `coach_group:${coachId}`, trainingDate: new Date("2026-10-21T00:00:00Z"),
     trainingTime: "17:00", trainingDurationMinutes: 60, trainingFieldId: null,
     trainingFieldPieceIds: [], status: "scheduled", note: null,
     players: [{ playerId: "existing-player", playerName: "Existing player", teamGroup: 2012, present: true, player: { cards: [] } }],
   }]);
-  mocks.refreshed.mockResolvedValue({ players: [
+  const existing = (await mocks.sessions())[0];
+  mocks.refreshed.mockResolvedValueOnce(existing).mockResolvedValue({ ...existing, players: [
     { playerId: "existing-player", playerName: "Existing player", teamGroup: 2012, present: true, player: { cards: [] } },
     { playerId: "new-player", playerName: "New player", teamGroup: 2012, present: true, player: { cards: [] } },
   ] });

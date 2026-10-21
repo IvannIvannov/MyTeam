@@ -19,7 +19,7 @@ type TrainingSessionWriter = {
     findMany(args: Prisma.TrainingSessionFindManyArgs): Promise<Array<{ id: string; trainingDate: Date; trainingTime: string | null; status: string; removedFromSchedule: boolean; rosterLockedAt?: Date | null }>>;
     updateMany(args: Prisma.TrainingSessionUpdateManyArgs): Promise<Prisma.BatchPayload>;
     deleteMany(args: Prisma.TrainingSessionDeleteManyArgs): Promise<Prisma.BatchPayload>;
-    upsert(args: Prisma.TrainingSessionUpsertArgs): Promise<{ id: string }>;
+    upsert(args: Prisma.TrainingSessionUpsertArgs): Promise<{ id: string; rosterLockedAt?: Date | null }>;
   };
   trainingSessionPlayer: {
     findMany(args: Prisma.TrainingSessionPlayerFindManyArgs): Promise<Array<{ playerId: string | null }>>;
@@ -191,11 +191,11 @@ export async function syncFutureTrainingSessions(input: {
         trainingFieldPieceIds: fieldSelection?.trainingFieldPieceIds ?? input.trainingFieldPieceIds,
         status: "scheduled",
       },
-      select: { id: true },
+      select: { id: true, rosterLockedAt: true },
     });
     // Schedule corrections may change the time, but must not rewrite attendance
     // from a session that had already started before this edit.
-    if (preserveRoster) continue;
+    if (preserveRoster || session.rosterLockedAt) continue;
     const optOutByPlayerId = optOutsByDate.get(date) ?? new Map();
     const roster = await input.tx.trainingSessionPlayer.findMany({ where: { trainingSessionId: session.id }, select: { playerId: true } });
     const enrolled = new Set(roster.map((player) => player.playerId));

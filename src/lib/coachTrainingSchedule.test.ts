@@ -63,8 +63,8 @@ describe("multiple coach trainings", () => {
     const tx = writer([{ id: firstId, trainingDate: new Date("2026-10-12T00:00:00Z"), note: "", status: "scheduled", players: [{ playerId: "player", present: false, reasonCode: "sick", attendanceRecorded: true }] }]);
     await writeCoachTrainings(tx as unknown as Parameters<typeof writeCoachTrainings>[0], "club", groupId, [training({ trainingTime: "10:00" }), training({ id: secondId, trainingTime: "18:00" })], []);
     expect(tx.trainingSession.update).toHaveBeenCalledWith(expect.objectContaining({ where: { id: firstId } }));
-    expect(tx.trainingSessionPlayer.createMany.mock.calls[0][0].data).toEqual([]);
-    expect(tx.trainingSessionPlayer.createMany.mock.calls[1][0].data).toEqual([expect.objectContaining({ trainingSessionId: secondId, playerId: "player", present: false })]);
+    expect(tx.trainingSessionPlayer.createMany).toHaveBeenCalledOnce();
+    expect(tx.trainingSessionPlayer.createMany.mock.calls[0][0].data).toEqual([expect.objectContaining({ trainingSessionId: secondId, playerId: "player", present: false })]);
     expect(tx.trainingSession.delete).not.toHaveBeenCalled();
     expect(tx.$queryRaw.mock.invocationCallOrder[0]).toBeLessThan(tx.trainingSession.findMany.mock.invocationCallOrder[0]);
   });
@@ -73,6 +73,22 @@ describe("multiple coach trainings", () => {
     await writeCoachTrainings(tx as unknown as Parameters<typeof writeCoachTrainings>[0], "club", groupId, [], []);
     expect(tx.trainingSession.update).toHaveBeenCalledWith({ where: { id: firstId }, data: { status: "cancelled" } });
     expect(tx.trainingSession.delete).not.toHaveBeenCalled();
+  });
+  it("does not add new members to an already locked roster", async () => {
+    const tx = writer([{ id: firstId, trainingDate: new Date("2026-10-12"), trainingTime: "18:00", rosterLockedAt: new Date(), players: [] }]);
+    await writeCoachTrainings(tx as unknown as Parameters<typeof writeCoachTrainings>[0], "club", groupId, [training({ trainingTime: "19:00" })], []);
+    expect(tx.trainingSessionPlayer.createMany).not.toHaveBeenCalled();
+  });
+  it("does not seed a started roster when moving its time forward", async () => {
+    const tx = writer([{ id: firstId, trainingDate: new Date("2026-10-12"), trainingTime: "09:00", rosterLockedAt: null, players: [] }]);
+    await writeCoachTrainings(tx as unknown as Parameters<typeof writeCoachTrainings>[0], "club", groupId, [training({ trainingTime: "18:00" })], []);
+    expect(tx.trainingSessionPlayer.createMany).not.toHaveBeenCalled();
+  });
+  it("cancels instead of deleting a locked session with default attendance", async () => {
+    const tx = writer([{ id: firstId, trainingDate: new Date("2026-10-12"), trainingTime: "18:00", rosterLockedAt: new Date(), players: [{ present: true, attendanceRecorded: false }] }]);
+    await writeCoachTrainings(tx as unknown as Parameters<typeof writeCoachTrainings>[0], "club", groupId, [], []);
+    expect(tx.trainingSession.delete).not.toHaveBeenCalled();
+    expect(tx.trainingSession.update).toHaveBeenCalledWith({ where: { id: firstId }, data: { status: "cancelled" } });
   });
   it.each(["calendar_month", "rolling_30_days", "training_credits", "training_credits_30_days"])("uses the right default for %s", async (paymentWorkflow) => {
     const tx = writer([]);

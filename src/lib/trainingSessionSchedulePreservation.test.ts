@@ -63,6 +63,17 @@ it("still creates new future sessions", async () => {
   await sync();
   expect(tx.trainingSession.upsert).toHaveBeenCalled();
 });
+it("honors a lock acquired by the database when the session starts during the save", async () => {
+  vi.setSystemTime(new Date("2026-10-21T08:59:59Z"));
+  const { tx, sync } = fixture("scheduled", "12:00");
+  tx.trainingSession.upsert.mockImplementation(async () => {
+    vi.setSystemTime(new Date("2026-10-21T09:00:01Z"));
+    return { id: "session", rosterLockedAt: new Date() };
+  });
+  await sync();
+  expect(tx.trainingSessionPlayer.deleteMany).not.toHaveBeenCalled();
+  expect(tx.trainingSessionPlayer.createMany).not.toHaveBeenCalled();
+});
 it("compares winter session times in Sofia rather than UTC", async () => {
   vi.setSystemTime(new Date("2026-10-26T10:00:00Z"));
   const { tx, sync } = fixture("scheduled", "11:59", false, "2026-10-26");
