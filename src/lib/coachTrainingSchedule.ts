@@ -3,7 +3,7 @@ import { trainingRequiresCheckIn } from "@/lib/trainingAttendanceDefaults";
 import { randomUUID } from "node:crypto";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
-import { isEligibleForMembership } from "@/lib/attendanceEligibility";
+import { isEligibleForMembership, isEligibleForTraining } from "@/lib/attendanceEligibility";
 import { getTodayIsoDateInTimeZone, getWeekdayMondayFirst, isIsoDate, isoDateToUtcMidnight, normalizeTrainingDurationMinutes, normalizeTrainingTime, utcDateToIsoDate } from "@/lib/training";
 import { parseTrainingFieldSelection } from "@/lib/trainingFields";
 
@@ -91,15 +91,19 @@ export async function writeCoachTrainings(tx: Pick<typeof prisma, "$queryRaw" | 
     const previous = existingById.get(item.id);
     if (item.date < today || (previous && utcDateToIsoDate(previous.trainingDate) < today)) throw new Error("Past trainings cannot be edited");
     const data = { occurrenceKey: item.id, trainingDate: isoDateToUtcMidnight(item.date), trainingTime: item.trainingTime, trainingDurationMinutes: item.trainingDurationMinutes, trainingFieldId: item.trainingFieldId, trainingFieldPieceIds: item.trainingFieldPieceIds, recurrenceId: item.recurrenceId, recurrenceDate: item.recurrenceDate ? isoDateToUtcMidnight(item.recurrenceDate) : null, status: item.status, note: item.note || null };
-    if (previous) await tx.trainingSession.update({ where: { id: item.id }, data });
-    else await tx.trainingSession.create({ data: { id: item.id, clubId, scopeType: "coachGroup", scopeKey, scopeId: groupId, ...data } });
+    const preserveRoster = previous && (previous.rosterLockedAt || !isEligibleForTraining(new Date(), utcDateToIsoDate(previous.trainingDate), previous.trainingTime));
+    const saved = previous
+      ? await tx.trainingSession.update({ where: { id: item.id }, data, select: { rosterLockedAt: true } })
+      : await tx.trainingSession.create({ data: { id: item.id, clubId, scopeType: "coachGroup", scopeKey, scopeId: groupId, ...data }, select: { rosterLockedAt: true } });
+    if (preserveRoster || saved?.rosterLockedAt) continue;
     const enrolled = new Set(previous?.players.map((p) => p.playerId) ?? []);
     await tx.trainingSessionPlayer.createMany({ data: players.filter((p) => !enrolled.has(p.id) && isEligibleForMembership(p, item.date, item.trainingTime, scopeKey)).map((p) => ({ trainingSessionId: item.id, playerId: p.id, playerName: p.fullName, teamGroup: p.teamGroup, present: !requiresCheckIn })), skipDuplicates: true });
   }
   const retained = new Set(trainings.map((t) => t.id));
   for (const removed of existing) {
     if (utcDateToIsoDate(removed.trainingDate) < today || retained.has(removed.id)) continue;
-    const hasActivity = Boolean(removed.note) || removed.players.some((p) => p.attendanceRecorded || p.creditChargedAt || (!requiresCheckIn && !p.present) || p.reasonCode || p.reasonText);
+    const hasActivity = Boolean(removed.rosterLockedAt) || Boolean(removed.note) || removed.players.some((p) => p.attendanceRecorded || p.creditChargedAt || (!requiresCheckIn && !p.present) || p.reasonCode || p.reasonText)
+      || (removed.players.length > 0 && !isEligibleForTraining(new Date(), utcDateToIsoDate(removed.trainingDate), removed.trainingTime));
     if (hasActivity || removed.status === "cancelled") await tx.trainingSession.update({ where: { id: removed.id }, data: { status: "cancelled" } });
     else await tx.trainingSession.delete({ where: { id: removed.id } });
   }

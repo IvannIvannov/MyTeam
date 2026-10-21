@@ -1,8 +1,8 @@
 import { Prisma } from "@prisma/client";
 import { trainingRequiresCheckIn } from "@/lib/trainingAttendanceDefaults";
 import { prisma } from "@/lib/db";
-import { isEligibleForMembership, type AttendancePlayer } from "@/lib/attendanceEligibility";
-import { isoDateToUtcMidnight, utcDateToIsoDate } from "@/lib/training";
+import { isEligibleForMembership, isEligibleForTraining, type AttendancePlayer } from "@/lib/attendanceEligibility";
+import { getTodayIsoDateInTimeZone, isoDateToUtcMidnight, utcDateToIsoDate } from "@/lib/training";
 
 type TrainingSessionScope =
   | { type: "club" }
@@ -16,9 +16,10 @@ type TrainingSessionWriter = {
   $queryRaw: typeof prisma.$queryRaw;
   club: Pick<typeof prisma.club, "findUniqueOrThrow">;
   trainingSession: {
+    findMany(args: Prisma.TrainingSessionFindManyArgs): Promise<Array<{ id: string; trainingDate: Date; trainingTime: string | null; status: string; removedFromSchedule: boolean; rosterLockedAt?: Date | null }>>;
     updateMany(args: Prisma.TrainingSessionUpdateManyArgs): Promise<Prisma.BatchPayload>;
     deleteMany(args: Prisma.TrainingSessionDeleteManyArgs): Promise<Prisma.BatchPayload>;
-    upsert(args: Prisma.TrainingSessionUpsertArgs): Promise<{ id: string }>;
+    upsert(args: Prisma.TrainingSessionUpsertArgs): Promise<{ id: string; rosterLockedAt?: Date | null }>;
   };
   trainingSessionPlayer: {
     findMany(args: Prisma.TrainingSessionPlayerFindManyArgs): Promise<Array<{ playerId: string | null }>>;
@@ -120,6 +121,14 @@ export async function syncFutureTrainingSessions(input: {
   });
 
   if (futureDates.length === 0) return;
+  // The cleanup above locks existing sessions. Read their original state before
+  // applying a schedule edit so a new time cannot move past attendance forward.
+  const existingSessions = await input.tx.trainingSession.findMany({
+    where: { clubId: input.clubId, scopeKey: scopeData.scopeKey, occurrenceKey: "", trainingDate: { in: futureDates.map(isoDateToUtcMidnight) } },
+    select: { id: true, trainingDate: true, trainingTime: true, status: true, removedFromSchedule: true, rosterLockedAt: true },
+  });
+  const existingByDate = new Map(existingSessions.map((session) => [utcDateToIsoDate(session.trainingDate), session]));
+  const now = new Date();
   const club = await input.tx.club.findUniqueOrThrow({ where: { id: input.clubId }, select: { paymentWorkflow: true } });
   const requiresCheckIn = trainingRequiresCheckIn(club.paymentWorkflow);
 
@@ -149,6 +158,9 @@ export async function syncFutureTrainingSessions(input: {
   }
 
   for (const date of futureDates) {
+    const existing = existingByDate.get(date);
+    if (existing?.status === "cancelled" && !existing.removedFromSchedule) continue;
+    const preserveRoster = existing && (existing.rosterLockedAt || !isEligibleForTraining(now, date, existing.trainingTime));
     const fieldSelection = input.trainingFieldSelections?.[date];
     const session = await input.tx.trainingSession.upsert({
       where: {
@@ -167,6 +179,7 @@ export async function syncFutureTrainingSessions(input: {
         trainingFieldPieceIds: fieldSelection?.trainingFieldPieceIds ?? input.trainingFieldPieceIds,
         status: "scheduled",
         removedFromSchedule: false,
+        ...(preserveRoster && !existing.rosterLockedAt ? { rosterLockedAt: now } : {}),
       },
       create: {
         clubId: input.clubId,
@@ -178,12 +191,15 @@ export async function syncFutureTrainingSessions(input: {
         trainingFieldPieceIds: fieldSelection?.trainingFieldPieceIds ?? input.trainingFieldPieceIds,
         status: "scheduled",
       },
-      select: { id: true },
+      select: { id: true, rosterLockedAt: true },
     });
+    // Schedule corrections may change the time, but must not rewrite attendance
+    // from a session that had already started before this edit.
+    if (preserveRoster || session.rosterLockedAt) continue;
     const optOutByPlayerId = optOutsByDate.get(date) ?? new Map();
     const roster = await input.tx.trainingSessionPlayer.findMany({ where: { trainingSessionId: session.id }, select: { playerId: true } });
     const enrolled = new Set(roster.map((player) => player.playerId));
-    await input.tx.trainingSessionPlayer.deleteMany({ where: { trainingSessionId: session.id, playerId: { notIn: players.map((player) => player.id) }, creditChargedAt: null, attendanceRecorded: false } });
+    await input.tx.trainingSessionPlayer.deleteMany({ where: { trainingSessionId: session.id, playerId: { notIn: players.map((player) => player.id) }, creditChargedAt: null, attendanceRecorded: false, reasonCode: null, reasonText: null } });
     const newPlayers = players.filter((player) => !enrolled.has(player.id) && isEligibleForMembership(player, date, input.trainingDateTimes[date], scopeData.scopeKey));
     // Legacy views use day-wide opt-outs. Seed only new roster entries so
     // saving a schedule never resets an existing attendance decision.
@@ -281,7 +297,17 @@ export async function removeTrainingSessionsPreservingHistory(tx: Pick<TrainingS
   // Match the check-in endpoint's session lock before deciding whether a
   // session is untouched. Otherwise a concurrent check-in could be cascaded away.
   await tx.$queryRaw`SELECT id FROM training_sessions WHERE club_id = ${where.clubId}::uuid AND scope_key = ${where.scopeKey} ORDER BY id FOR UPDATE`;
-  const history = { OR: [{ attendanceRecorded: true }, { creditChargedAt: { not: null } }] };
+  const today = isoDateToUtcMidnight(getTodayIsoDateInTimeZone("Europe/Sofia"));
+  const localTime = new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/Sofia", hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23" }).format(new Date());
+  const history: Prisma.TrainingSessionPlayerWhereInput = { OR: [
+    { attendanceRecorded: true }, { creditChargedAt: { not: null } },
+    { reasonCode: { not: null } }, { reasonText: { not: null } },
+    { trainingSession: { OR: [
+      { rosterLockedAt: { not: null } },
+      { trainingDate: { lt: today } },
+      { trainingDate: today, OR: [{ trainingTime: { lt: localTime } }, { trainingTime: null }] },
+    ] } },
+  ] };
   await tx.trainingSession.updateMany({ where: { ...where, players: { some: history } }, data: { status: "cancelled", removedFromSchedule: true } });
   await tx.trainingSession.deleteMany({ where: { ...where, players: { none: history } } });
 }

@@ -9,7 +9,7 @@ describe("legacy training attendance defaults", () => {
     const tx = {
       $queryRaw: vi.fn(),
       club: { findUniqueOrThrow: vi.fn().mockResolvedValue({ paymentWorkflow }) },
-      trainingSession: { updateMany: vi.fn(), deleteMany: vi.fn(), upsert: vi.fn().mockResolvedValue({ id: "session" }) },
+      trainingSession: { findMany: vi.fn().mockResolvedValue([]), updateMany: vi.fn(), deleteMany: vi.fn(), upsert: vi.fn().mockResolvedValue({ id: "session" }) },
       trainingSessionPlayer: {
         findMany: vi.fn().mockResolvedValue([{ playerId: "existing" }]),
         deleteMany: vi.fn(), createMany: vi.fn(), updateMany: vi.fn(),
@@ -29,6 +29,6 @@ describe("legacy training attendance defaults", () => {
     });
     else expect(tx.trainingOptOut.createMany).not.toHaveBeenCalled();
     expect(tx.trainingSessionPlayer.updateMany).not.toHaveBeenCalled();
-    expect(tx.trainingSessionPlayer.deleteMany).toHaveBeenCalledWith({ where: { trainingSessionId: "session", playerId: { notIn: ["existing", "new"] }, creditChargedAt: null, attendanceRecorded: false } });
+    expect(tx.trainingSessionPlayer.deleteMany).toHaveBeenCalledWith({ where: { trainingSessionId: "session", playerId: { notIn: ["existing", "new"] }, creditChargedAt: null, attendanceRecorded: false, reasonCode: null, reasonText: null } });
   });
 });

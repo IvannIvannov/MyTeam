@@ -8,14 +8,16 @@ const mocks = vi.hoisted(() => ({
   card: { findFirst: vi.fn() },
   club: { findUnique: vi.fn() },
   coachGroup: { findFirst: vi.fn() },
+  clubCustomTrainingGroup: { findFirst: vi.fn() },
   player: { findMany: vi.fn() },
   trainingSession: { findMany: vi.fn(), findFirst: vi.fn() },
-  trainingSessionPlayer: { upsert: vi.fn() },
+  trainingSessionPlayer: { upsert: vi.fn(), createMany: vi.fn() },
   trainingOptOut: { findMany: vi.fn(), upsert: vi.fn(), deleteMany: vi.fn() },
   trainingNote: { findMany: vi.fn(), findFirst: vi.fn() },
   limitedTrainingEvent: { findMany: vi.fn() },
   field: { findMany: vi.fn() },
   $transaction: vi.fn(),
+  $queryRaw: vi.fn(),
 }));
 vi.mock("@/lib/db", () => ({ prisma: mocks }));
 vi.mock("@/lib/adminAuth", () => ({ verifyAdminToken: vi.fn().mockResolvedValue({ roles: ["admin"] }) }));
@@ -98,6 +100,20 @@ describe("coach training API boundaries", () => {
     expect(mocks.trainingOptOut.upsert).not.toHaveBeenCalled();
     expect(mocks.trainingSession.findFirst.mock.calls[0][0].where.scopeId).toEqual({ in: [groupId] });
   });
+  it.each([POST, DELETE])("rejects a new member trying to enter a locked historical roster", async (update) => {
+    mocks.trainingSession.findFirst.mockResolvedValue({ ...session(secondId, "18:00", true), rosterLockedAt: new Date(), players: [] });
+    const response = await update(new NextRequest("http://localhost/training", { method: update === POST ? "POST" : "DELETE", body: JSON.stringify({ trainingSessionId: secondId, reasonCode: "sick" }) }), context);
+    expect(response.status).toBe(403);
+    expect(mocks.trainingSessionPlayer.upsert).not.toHaveBeenCalled();
+  });
+  it.each([POST, DELETE])("allows an existing locked roster member to update their attendance", async (update) => {
+    mocks.trainingSession.findFirst.mockResolvedValue({ ...session(secondId, "18:00", true), rosterLockedAt: new Date() });
+    const response = await update(new NextRequest("http://localhost/training", { method: update === POST ? "POST" : "DELETE", body: JSON.stringify({ trainingSessionId: secondId, reasonCode: "sick" }) }), context);
+    expect(response.status).toBe(200);
+    expect(mocks.trainingSessionPlayer.upsert).toHaveBeenCalledOnce();
+    expect(mocks.$queryRaw.mock.invocationCallOrder[0]).toBeLessThan(mocks.trainingSession.findFirst.mock.invocationCallOrder[0]);
+    expect(mocks.trainingSession.findFirst.mock.invocationCallOrder[0]).toBeLessThan(mocks.trainingSessionPlayer.upsert.mock.invocationCallOrder[0]);
+  });
   it("shows coach trainings alongside custom-group trainings, including different dates", async () => {
     const card = await mocks.card.findFirst();
     card.player.club.trainingGroupMode = "custom_group";
@@ -154,6 +170,44 @@ describe("coach training API boundaries", () => {
     expect(data.players[0]).toMatchObject({ id: playerId, fullName: "Player", optedOut: false });
     expect(data.upcomingDates).toMatchObject([{ date, sessions: [{ id: firstId }, { id: secondId }] }]);
     expect(mocks.trainingSession.findFirst.mock.calls[0][0].where).toMatchObject({ id: secondId, clubId, scopeType: "coachGroup" });
+  });
+  it("opening attendance does not repair a locked roster with newly joined members", async () => {
+    const locked = { ...session(secondId, "18:00", true), rosterLockedAt: new Date() };
+    mocks.trainingSession.findMany.mockResolvedValue([locked]);
+    mocks.trainingSession.findFirst.mockResolvedValue(locked);
+    mocks.player.findMany.mockResolvedValue([{ id: "new-member", fullName: "New", teamGroup: null, cards: [] }]);
+    const response = await attendance(new NextRequest(`http://localhost/attendance?trainingSessionId=${secondId}`, { headers: { cookie: "admin_session=test" } }), { params: Promise.resolve({ id: clubId }) });
+    expect(response.status).toBe(200);
+    expect(mocks.trainingSessionPlayer.createMany).not.toHaveBeenCalled();
+  });
+  it("rechecks the roster lock after a concurrent schedule correction", async () => {
+    const entry = session(secondId, "18:00", true);
+    mocks.trainingSession.findMany.mockResolvedValue([entry]);
+    mocks.trainingSession.findFirst.mockResolvedValue({ ...entry, rosterLockedAt: new Date() });
+    mocks.player.findMany.mockResolvedValue([{ id: "new-member", fullName: "New", teamGroup: null, cards: [] }]);
+    const response = await attendance(new NextRequest(`http://localhost/attendance?coachGroupId=${groupId}&month=2026-10`, { headers: { cookie: "admin_session=test" } }), { params: Promise.resolve({ id: clubId }) });
+    expect(response.status).toBe(200);
+    expect(mocks.trainingSessionPlayer.createMany).not.toHaveBeenCalled();
+  });
+  it.each([[true, "coach"], [false, "coach"], [true, "custom"], [false, "custom"]] as const)("reports roster membership after leaving, locked=%s, scope=%s", async (locked, scope) => {
+    const key = scope === "coach" ? scopeKey : `custom_group:${groupId}`;
+    const row = { ...session(secondId, "18:00", true), scopeKey: key, scopeType: scope === "coach" ? "coachGroup" : "customGroup", rosterLockedAt: locked ? new Date() : null };
+    mocks.clubCustomTrainingGroup.findFirst.mockResolvedValue({ id: groupId, trainingDates: [date], trainingWeekdays: [], trainingTime: "18:00", players: [] });
+    mocks.trainingSession.findMany.mockResolvedValue([row]);
+    mocks.trainingOptOut.findMany.mockResolvedValue([]);
+    mocks.player.findMany.mockResolvedValue([{ id: playerId, fullName: "Player", teamGroup: null, attendanceMemberships: [{ scopeKey: key, joinedAt: new Date("2026-10-01T00:00Z"), leftAt: new Date("2026-10-12T09:00Z") }] }]);
+    const filter = scope === "coach" ? "coachGroupId" : "customTrainingGroupId";
+    const response = await report(new NextRequest(`http://localhost/report?${filter}=${groupId}&from=${date}&to=${date}`, { headers: { cookie: "admin_session=test" } }), { params: Promise.resolve({ id: clubId }) });
+    expect(response.status).toBe(200);
+    const data = await response.json();
+    expect(Object.values(data.players[0].attendance)).toEqual(locked ? [{ present: true, reasonCode: null }] : []);
+  });
+  it("does not infer attendance for new members outside a locked roster", async () => {
+    mocks.trainingSession.findMany.mockResolvedValue([{ ...session(secondId, "18:00", true), rosterLockedAt: new Date(), players: [] }]);
+    mocks.trainingOptOut.findMany.mockResolvedValue([]);
+    const response = await report(new NextRequest(`http://localhost/report?coachGroupId=${groupId}&from=${date}&to=${date}`, { headers: { cookie: "admin_session=test" } }), { params: Promise.resolve({ id: clubId }) });
+    expect(response.status).toBe(200);
+    expect(Object.values((await response.json()).players[0].attendance)).toEqual([]);
   });
   it("loads all coach sessions for the calendar independently of the old custom-group dates", async () => {
     mocks.trainingSession.findMany.mockResolvedValue([session(firstId, "09:00", false), { ...session(secondId, "18:00", true), trainingDate: new Date("2026-10-13T00:00:00Z") }]);

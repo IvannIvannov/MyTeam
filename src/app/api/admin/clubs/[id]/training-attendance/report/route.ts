@@ -316,7 +316,7 @@ export async function GET(
       select: {
         id: true,
         scopeType: true, scopeKey: true,
-        trainingTime: true,
+        trainingTime: true, rosterLockedAt: true,
         trainingDate: true,
         players: {
           select: {
@@ -340,6 +340,9 @@ export async function GET(
       ...(playerCustomGroups.length > 0 ? playerGroupDates : [trainingDates]),
       storedSessionDates,
     );
+    const preservedPlayerIds = storedSessions.flatMap((entry) => entry.players.flatMap((row) =>
+      row.playerId && (entry.rosterLockedAt || row.attendanceRecorded) ? [row.playerId] : [],
+    ));
 
     const players = targetPlayer
       ? [targetPlayer]
@@ -351,8 +354,10 @@ export async function GET(
               ...(coachGroupId ? [{ OR: [{ coachGroups: { some: { id: coachGroupId } } }, { attendanceMemberships: { some: { scopeKey: `coach_group:${coachGroupId}` } } }] }] : []),
               ...(customTrainingGroup ? [{ OR: [{ id: { in: customTrainingGroup.players.map((p) => p.playerId) } }, { attendanceMemberships: { some: { scopeKey: `custom_group:${customTrainingGroup.id}` } } }] }] : []),
             ],
-            ...(trainingGroup ? { teamGroup: { in: trainingGroup.teamGroups } } : {}),
-            ...(teamGroup !== null && !trainingGroup ? { teamGroup } : {}),
+            ...(trainingGroup || teamGroup !== null ? { OR: [
+              trainingGroup ? { teamGroup: { in: trainingGroup.teamGroups } } : { teamGroup },
+              { id: { in: preservedPlayerIds } },
+            ] } : {}),
           },
           select: { id: true, fullName: true, teamGroup: true, createdAt: true, attendanceStartedAt: true, attendanceMemberships: true },
           orderBy: { fullName: "asc" },
@@ -381,11 +386,25 @@ export async function GET(
 
     const sessionAttendanceMap = new Map<string, Map<string, { present: boolean; reasonCode: string | null }>>();
     const registrationByPlayer = new Map(players.map((p) => [p.id, p]));
+    const belongsToCurrentTeam = (player: { teamGroup?: number | null }) => {
+      if (targetPlayer) return true;
+      if (trainingGroup) return player.teamGroup != null && trainingGroup.teamGroups.includes(player.teamGroup);
+      return teamGroup === null || player.teamGroup === teamGroup;
+    };
+    const eligibleForSession = (player: AttendancePlayer & { id: string; teamGroup?: number | null }, session: (typeof storedSessions)[number]) => {
+      const row = session.players.find((entry) => entry.playerId === player.id);
+      // A locked roster is the historical membership snapshot, even when its
+      // corrected start time falls outside the player's enrollment period.
+      if (session.rosterLockedAt) return Boolean(row);
+      if (row?.attendanceRecorded) return true;
+      if (!belongsToCurrentTeam(player)) return false;
+      return isEligibleForMembership(player, utcDateToIsoDate(session.trainingDate), session.trainingTime, session.scopeKey ?? scopeKey, row?.attendanceRecorded);
+    };
     for (const session of storedSessions) {
       const iso = utcDateToIsoDate(session.trainingDate);
       for (const row of session.players) {
         if (!row.playerId) continue;
-        if (!isEligibleForMembership(registrationByPlayer.get(row.playerId) ?? {}, iso, session.trainingTime, session.scopeKey ?? scopeKey, row.attendanceRecorded)) continue;
+        if (!eligibleForSession(registrationByPlayer.get(row.playerId) ?? { id: row.playerId }, session)) continue;
         if (!sessionAttendanceMap.has(row.playerId)) sessionAttendanceMap.set(row.playerId, new Map());
         const byDate = sessionAttendanceMap.get(row.playerId)!;
         const previous = byDate.get(iso);
@@ -406,7 +425,7 @@ export async function GET(
       const columns = storedSessions.map((s) => ({ key: `${utcDateToIsoDate(s.trainingDate)}T${s.trainingTime ?? "00:00"}#${s.id}`, session: s }));
       return NextResponse.json({
         trainingDates: columns.map((c) => c.key),
-        players: players.map((p) => ({ ...p, attendance: Object.fromEntries(columns.filter(({ session }) => isEligibleForMembership(p, utcDateToIsoDate(session.trainingDate), session.trainingTime, session.scopeKey ?? scopeKey, session.players.find(r => r.playerId === p.id)?.attendanceRecorded)).map(({ key, session }) => {
+        players: players.map((p) => ({ ...p, attendance: Object.fromEntries(columns.filter(({ session }) => eligibleForSession(p, session)).map(({ key, session }) => {
           const row = session.players.find((r) => r.playerId === p.id);
           return [key, { present: row?.present ?? !trainingRequiresCheckIn(club.paymentWorkflow), reasonCode: row?.present ? null : row?.reasonCode ?? null }];
         })) })),
@@ -424,9 +443,10 @@ export async function GET(
         teamGroup: p.teamGroup,
         attendance: Object.fromEntries(
           reportTrainingDates.filter((d) => {
-            if (optOutMap.get(p.id)?.has(d)) return true;
             const sessions = storedSessions.filter((s) => utcDateToIsoDate(s.trainingDate) === d);
-            if (sessions.length) return sessions.some((s) => isEligibleForMembership(p, d, s.trainingTime, s.scopeKey ?? scopeKey, s.players.find(r => r.playerId === p.id)?.attendanceRecorded));
+            if (sessions.length) return sessions.some((s) => eligibleForSession(p, s));
+            if (!belongsToCurrentTeam(p)) return false;
+            if (optOutMap.get(p.id)?.has(d)) return true;
             return fallbackSchedules.some(({ schedule, dates }) => {
               if (!dates.has(d)) return false;
               const times = schedule.trainingDateTimes as Record<string, string> | null;

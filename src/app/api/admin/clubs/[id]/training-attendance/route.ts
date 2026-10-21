@@ -2,7 +2,7 @@ import { TRAINING_SELECTION_WINDOW_DAYS } from "@/lib/trainingScheduleWindow";
 import { trainingRequiresCheckIn } from "@/lib/trainingAttendanceDefaults";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { isEligibleForMembership } from "@/lib/attendanceEligibility";
+import { isEligibleForMembership, isEligibleForTraining } from "@/lib/attendanceEligibility";
 import { publishMemberUpdated } from "@/lib/memberEvents";
 import { verifyAdminToken } from "@/lib/adminAuth";
 import { publishTrainingAttendanceUpdated } from "@/lib/trainingAttendanceEvents";
@@ -192,12 +192,20 @@ export async function GET(
     const now = new Date();
     const localNow = new Intl.DateTimeFormat("sv-SE", { timeZone: FIXED_TIME_ZONE, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23" }).format(now).replace(" ", "T");
     for (const entry of rows) {
+      if (entry.rosterLockedAt) continue;
       const date = utcDateToIsoDate(entry.trainingDate);
       if (`${date}T${entry.trainingTime ?? "00:00"}:00` < localNow) continue;
       const missing = members.filter((member) => isEligibleForMembership(member, date, entry.trainingTime, `coach_group:${scopeId}`) && !entry.players.some((p) => p.playerId === member.id));
       if (!missing.length) continue;
-      await prisma.trainingSessionPlayer.createMany({ data: missing.map((member) => ({ trainingSessionId: entry.id, playerId: member.id, playerName: member.fullName, teamGroup: member.teamGroup, present: !trainingRequiresCheckIn(rosterClub?.paymentWorkflow) })), skipDuplicates: true });
-      const refreshed = await prisma.trainingSession.findFirst({ where: { id: entry.id }, include });
+      const refreshed = await prisma.$transaction(async (tx) => {
+        // Serialize repair with schedule edits, then recheck the current lock.
+        await tx.$queryRaw`SELECT id FROM training_sessions WHERE id = ${entry.id}::uuid FOR UPDATE`;
+        const current = await tx.trainingSession.findFirst({ where: { id: entry.id, clubId: id, status: "scheduled" }, include });
+        if (!current || current.rosterLockedAt || !isEligibleForTraining(new Date(), utcDateToIsoDate(current.trainingDate), current.trainingTime)) return current;
+        const eligible = missing.filter((member) => isEligibleForMembership(member, utcDateToIsoDate(current.trainingDate), current.trainingTime, current.scopeKey));
+        await tx.trainingSessionPlayer.createMany({ data: eligible.map((member) => ({ trainingSessionId: entry.id, playerId: member.id, playerName: member.fullName, teamGroup: member.teamGroup, present: !trainingRequiresCheckIn(rosterClub?.paymentWorkflow) })), skipDuplicates: true });
+        return tx.trainingSession.findFirst({ where: { id: entry.id }, include });
+      });
       if (refreshed) entry.players = refreshed.players;
     }
     const attendanceStats = (players: { playerId: string | null; present: boolean }[]) => {
@@ -510,14 +518,21 @@ export async function GET(
   const customPlayerIds = customTrainingGroup
     ? customTrainingGroup.players.map((item) => item.playerId)
     : [];
+  const attendanceSessions = await prisma.trainingSession.findMany({
+    where: { clubId: id, scopeKey, trainingDate: { in: upcomingDates.map(isoDateToUtcMidnight) }, status: { not: "cancelled" } },
+    select: { trainingDate: true, trainingTime: true, rosterLockedAt: true, players: { select: { playerId: true, present: true } } },
+  });
+  const lockedPlayerIds = attendanceSessions.filter((entry) => entry.rosterLockedAt).flatMap((entry) => entry.players.flatMap((row) => row.playerId ? [row.playerId] : []));
 
   const players = await prisma.player.findMany({
     where: {
       clubId: id,
       isActive: true,
-      ...(customTrainingGroup ? { id: { in: customPlayerIds } } : {}),
-      ...(trainingGroup ? { teamGroup: { in: trainingGroup.teamGroups } } : {}),
-      ...(teamGroup !== null ? { teamGroup } : {}),
+      ...(customTrainingGroup ? { id: { in: Array.from(new Set([...customPlayerIds, ...lockedPlayerIds])) } } : {}),
+      ...(trainingGroup || teamGroup !== null ? { OR: [
+        trainingGroup ? { teamGroup: { in: trainingGroup.teamGroups } } : { teamGroup },
+        { id: { in: lockedPlayerIds } },
+      ] } : {}),
     },
     select: {
       id: true,
@@ -539,7 +554,7 @@ export async function GET(
   const trainingDateAsDate = isoDateToUtcMidnight(trainingDate);
   const upcomingDatesAsDate = upcomingDates.map((date) => isoDateToUtcMidnight(date));
 
-  const [allOptOuts, note, sessionForDate, attendanceSessions] = await Promise.all([
+  const [allOptOuts, note, sessionForDate] = await Promise.all([
     playerIds.length > 0 && upcomingDatesAsDate.length > 0
       ? prisma.trainingOptOut.findMany({
           where: {
@@ -570,17 +585,19 @@ export async function GET(
       where: { clubId: id, scopeKey, trainingDate: trainingDateAsDate },
       select: { status: true },
     }),
-    prisma.trainingSession.findMany({
-      where: { clubId: id, scopeKey, trainingDate: { in: upcomingDatesAsDate }, status: { not: "cancelled" } },
-      select: { trainingDate: true, players: { select: { playerId: true, present: true } } },
-    }),
   ]);
 
   const optedOutCountByDate = new Map<string, number>();
   const selectedDateOptedOutSet = new Set<string>();
-  const eligiblePlayersOnDate = (date: string) => players.filter((player) => isEligibleForMembership(
-    player, date, storedSessionByDate.get(date)?.trainingTime ?? resolvedTrainingDateTimes[date] ?? resolvedDefaultTrainingTime, scopeKey,
-  ));
+  const attendanceSessionByDate = new Map(attendanceSessions.map((entry) => [utcDateToIsoDate(entry.trainingDate), entry]));
+  const eligiblePlayersOnDate = (date: string) => players.filter((player) => {
+    const entry = attendanceSessionByDate.get(date);
+    if (entry?.rosterLockedAt) return entry.players.some((row) => row.playerId === player.id);
+    if (customTrainingGroup && !customPlayerIds.includes(player.id)) return false;
+    if (trainingGroup && (player.teamGroup === null || !trainingGroup.teamGroups.includes(player.teamGroup))) return false;
+    if (teamGroup !== null && player.teamGroup !== teamGroup) return false;
+    return isEligibleForMembership(player, date, entry?.trainingTime ?? storedSessionByDate.get(date)?.trainingTime ?? resolvedTrainingDateTimes[date] ?? resolvedDefaultTrainingTime, scopeKey);
+  });
   for (const item of allOptOuts) {
     const dateIso = utcDateToIsoDate(item.trainingDate);
     if (!eligiblePlayersOnDate(dateIso).some((player) => player.id === item.playerId)) continue;
@@ -589,12 +606,12 @@ export async function GET(
       selectedDateOptedOutSet.add(item.playerId);
     }
   }
-  // Session attendance is authoritative after an individual training check-in.
+  // Check-ins and locked historical rosters override inferred day-wide attendance.
   const selectedAttendance = new Map<string, boolean>();
-  for (const session of trainingRequiresCheckIn(club.paymentWorkflow) ? attendanceSessions : []) {
+  for (const session of attendanceSessions.filter((entry) => trainingRequiresCheckIn(club.paymentWorkflow) || entry.rosterLockedAt)) {
     const date = utcDateToIsoDate(session.trainingDate);
     const attendance = new Map(session.players.filter((row) => row.playerId).map((row) => [row.playerId!, row.present]));
-    const absentCount = players.filter((player) => attendance.has(player.id) ? !attendance.get(player.id) : allOptOuts.some((row) => row.playerId === player.id && utcDateToIsoDate(row.trainingDate) === date)).length;
+    const absentCount = eligiblePlayersOnDate(date).filter((player) => attendance.has(player.id) ? !attendance.get(player.id) : allOptOuts.some((row) => row.playerId === player.id && utcDateToIsoDate(row.trainingDate) === date)).length;
     optedOutCountByDate.set(date, absentCount);
     if (date === trainingDate) for (const [playerId, present] of attendance) selectedAttendance.set(playerId, present);
   }

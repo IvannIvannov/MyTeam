@@ -8,7 +8,7 @@ import { saveAdminNotificationHistory } from "@/lib/push/adminHistory";
 import { buildNotificationPayload } from "@/lib/push/templates";
 import type { PushNotificationPayload } from "@/lib/push/types";
 import { isIsoDate } from "@/lib/training";
-import { resolveLimitedTrainingSessionId, setLimitedSessionAttendance } from "@/lib/limitedTrainingSession";
+import { resolveLimitedTrainingSessionId, setLimitedSessionAttendance, type LimitedSessionWriter } from "@/lib/limitedTrainingSession";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -186,45 +186,56 @@ export async function POST(
     return NextResponse.json({ error: "Player is not in the scope of this event" }, { status: 403 });
   }
   const trainingSessionId = await resolveLimitedTrainingSessionId(player.clubId, event.scopeKey, new Date(`${trainingDate}T00:00:00Z`));
-  if (trainingSessionId && !await prisma.trainingSession.findFirst({ where: { id: trainingSessionId, clubId: player.clubId, status: "scheduled", trainingDate: new Date(`${trainingDate}T00:00:00Z`) }, select: { id: true } })) return NextResponse.json({ error: "Training is cancelled or unavailable" }, { status: 404 });
+  const reserve = async (db: LimitedSessionWriter & Pick<typeof prisma, "limitedTrainingRegistration" | "trainingOptOut">) => {
+    if (trainingSessionId) {
+      await db.$queryRaw`SELECT id FROM training_sessions WHERE id = ${trainingSessionId}::uuid FOR UPDATE`;
+      const session = await db.trainingSession.findFirst({ where: { id: trainingSessionId, clubId: player.clubId, status: "scheduled", trainingDate: new Date(`${trainingDate}T00:00:00Z`) }, select: { id: true, rosterLockedAt: true, players: { where: { playerId: player.playerId }, select: { playerId: true } } } });
+      if (!session) return NextResponse.json({ error: "Training is cancelled or unavailable" }, { status: 404 });
+      if (session.rosterLockedAt && !session.players.some((row) => row.playerId === player.playerId)) return NextResponse.json({ error: "Не можете да се запишете за тази тренировка." }, { status: 403 });
+    }
 
-  // Check if already registered (idempotent)
-  const existing = await prisma.limitedTrainingRegistration.findFirst({
-    where: { eventId: event.id, playerId: player.playerId },
-    select: { id: true },
-  });
-
-  if (!existing) {
-    await prisma.limitedTrainingRegistration.create({
-      data: { eventId: event.id, playerId: player.playerId },
+    // Check if already registered (idempotent)
+    const existing = await db.limitedTrainingRegistration.findFirst({
+      where: { eventId: event.id, playerId: player.playerId },
+      select: { id: true },
     });
-  }
 
-  // Fetch all registrations ordered by time to determine confirmed vs waitlist
-  const allRegs = await prisma.limitedTrainingRegistration.findMany({
-    where: { eventId: event.id },
-    select: { playerId: true },
-    orderBy: { registeredAt: "asc" },
-  });
+    if (!existing) {
+      await db.limitedTrainingRegistration.create({
+        data: { eventId: event.id, playerId: player.playerId },
+      });
+    }
 
-  const totalCount = allRegs.length;
-  const playerIndex = allRegs.findIndex((r) => r.playerId === player.playerId);
-  const position = playerIndex >= 0 ? playerIndex + 1 : totalCount;
-  const isConfirmed = position <= event.maxSpots;
-  const waitlistPosition = isConfirmed ? null : position - event.maxSpots;
-
-  const sessionAttendanceHandled = await setLimitedSessionAttendance(player.clubId, event.scopeKey, [player.playerId], isConfirmed, new Date(`${trainingDate}T00:00:00Z`));
-  if (isConfirmed && !sessionAttendanceHandled) {
-    // Remove the auto-created opt-out so the player shows as attending
-    await prisma.trainingOptOut.deleteMany({
-      where: {
-        playerId: player.playerId,
-        trainingDate: new Date(trainingDate + "T00:00:00.000Z"),
-        reasonCode: "limited_event",
-      },
+    // Fetch all registrations ordered by time to determine confirmed vs waitlist
+    const allRegs = await db.limitedTrainingRegistration.findMany({
+      where: { eventId: event.id },
+      select: { playerId: true },
+      orderBy: { registeredAt: "asc" },
     });
-  }
-  // If waitlisted, keep the opt-out — not yet a confirmed attendee
+
+    const totalCount = allRegs.length;
+    const playerIndex = allRegs.findIndex((r) => r.playerId === player.playerId);
+    const position = playerIndex >= 0 ? playerIndex + 1 : totalCount;
+    const isConfirmed = position <= event.maxSpots;
+    const waitlistPosition = isConfirmed ? null : position - event.maxSpots;
+
+    const sessionAttendanceHandled = await setLimitedSessionAttendance(player.clubId, event.scopeKey, [player.playerId], isConfirmed, new Date(`${trainingDate}T00:00:00Z`), trainingSessionId ? db : undefined);
+    if (isConfirmed && !sessionAttendanceHandled) {
+      // Remove the auto-created opt-out so the player shows as attending
+      await db.trainingOptOut.deleteMany({
+        where: {
+          playerId: player.playerId,
+          trainingDate: new Date(trainingDate + "T00:00:00.000Z"),
+          reasonCode: "limited_event",
+        },
+      });
+    }
+    // If waitlisted, keep the opt-out — not yet a confirmed attendee
+    return { totalCount, position, isConfirmed, waitlistPosition };
+  };
+  const result = trainingSessionId ? await prisma.$transaction(reserve) : await reserve(prisma);
+  if (result instanceof NextResponse) return result;
+  const { totalCount, position, isConfirmed, waitlistPosition } = result;
 
   publishMemberUpdated(cardCode, "training-updated");
   publishTrainingAttendanceUpdated(player.clubId, trainingDate);

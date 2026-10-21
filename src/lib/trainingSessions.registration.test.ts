@@ -8,7 +8,7 @@ it.each(["calendar", "training_credits"])("does not enroll a new player into an 
   const tx = {
     $queryRaw: vi.fn().mockResolvedValue([]),
     club: { findUniqueOrThrow: vi.fn().mockResolvedValue({ paymentWorkflow: workflow }) },
-    trainingSession: { updateMany: vi.fn().mockResolvedValue({ count: 0 }), deleteMany: vi.fn().mockResolvedValue({ count: 0 }), upsert: vi.fn().mockResolvedValueOnce({ id: "morning" }).mockResolvedValueOnce({ id: "tomorrow" }) },
+    trainingSession: { findMany: vi.fn().mockResolvedValue([]), updateMany: vi.fn().mockResolvedValue({ count: 0 }), deleteMany: vi.fn().mockResolvedValue({ count: 0 }), upsert: vi.fn().mockResolvedValueOnce({ id: "morning" }).mockResolvedValueOnce({ id: "tomorrow" }) },
     trainingSessionPlayer: { findMany: vi.fn().mockResolvedValue([]), deleteMany: vi.fn().mockResolvedValue({ count: 0 }), createMany, updateMany: vi.fn().mockResolvedValue({ count: 0 }) },
     trainingOptOut: { createMany: vi.fn().mockResolvedValue({ count: 0 }), findMany: vi.fn().mockResolvedValue([]) },
     player: { findMany: vi.fn().mockResolvedValue([{ id: "new", fullName: "New", teamGroup: null, createdAt: new Date("2026-10-20T12:00:00Z") }]) },
