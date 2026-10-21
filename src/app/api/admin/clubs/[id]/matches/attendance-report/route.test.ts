@@ -13,8 +13,8 @@ const clubId = "10000000-0000-4000-8000-000000000001";
 const coachId = "10000000-0000-4000-8000-000000000002";
 const customId = "10000000-0000-4000-8000-000000000003";
 const playerId = "10000000-0000-4000-8000-000000000004";
-async function report(query = "", authenticated = true) {
-  return GET(new NextRequest(`http://localhost/api/admin/clubs/${clubId}/matches/attendance-report?from=2026-10-01&to=2026-10-18&${query}`, {
+async function report(query = "", authenticated = true, from = "2026-10-01", to = "2026-10-18") {
+  return GET(new NextRequest(`http://localhost/api/admin/clubs/${clubId}/matches/attendance-report?from=${from}&to=${to}&${query}`, {
     headers: authenticated ? { cookie: "admin_session=test" } : {},
   }), { params: Promise.resolve({ id: clubId }) });
 }
@@ -56,7 +56,7 @@ describe("game attendance report API", () => {
   });
 
   it("rejects invalid ranges and conflicting filters before querying the database", async () => {
-    for (const query of ["from=bad", "to=2026-09-01", "to=2027-10-18", `teamGroup=2014&customTrainingGroupId=${customId}`, `playerId=${playerId}&teamGroup=2014`, "coachGroupId=bad"]) {
+    for (const query of ["from=bad", "to=2026-09-01", `teamGroup=2014&customTrainingGroupId=${customId}`, `playerId=${playerId}&teamGroup=2014`, "coachGroupId=bad"]) {
       // Replace the base range for range-validation cases rather than adding duplicate keys.
       const url = new URL(`http://localhost/api/admin/clubs/${clubId}/matches/attendance-report?from=2026-10-01&to=2026-10-18`);
       new URLSearchParams(query).forEach((value, key) => url.searchParams.set(key, value));
@@ -64,5 +64,20 @@ describe("game attendance report API", () => {
       expect(response.status).toBe(400);
     }
     expect(mocks.club).not.toHaveBeenCalled();
+  });
+
+  it.each(["2025-10-21", "2021-10-21"])("returns the entire requested match history starting %s", async (from) => {
+    mocks.matches.mockResolvedValue([from, "2026-10-21"].map((date, index) => ({
+      id: `game-${index}`, matchDate: date, matchTime: "10:00", opponent: "Друг отбор",
+      customGroupId: customId, teamGroups: [], players: [],
+    })));
+    const response = await report("", true, from, "2026-10-21");
+    expect(response.status).toBe(200);
+    const data = await response.json();
+    expect(data.trainingDates).toEqual([`${from}#game-0`, "2026-10-21#game-1"]);
+    expect(Object.keys(data.players[0].attendance)).toEqual(data.trainingDates);
+    expect(mocks.matches.mock.calls[0][0].where).toMatchObject({
+      clubId, matchDate: { gte: from, lte: "2026-10-21" },
+    });
   });
 });

@@ -19,9 +19,9 @@ vi.mock("@/lib/db", () => ({ prisma: {
   trainingOptOut: { findMany: mocks.optOuts },
 } }));
 
-async function report(query: string) {
+async function report(query: string, from = "2026-10-01", to = "2026-10-09") {
   return GET(new NextRequest(
-    `http://localhost/api/admin/clubs/club-1/training-attendance/report?from=2026-10-01&to=2026-10-09&${query}`,
+    `http://localhost/api/admin/clubs/club-1/training-attendance/report?from=${from}&to=${to}&${query}`,
     { headers: { cookie: "admin_session=test" } },
   ), { params: Promise.resolve({ id: "club-1" }) });
 }
@@ -61,6 +61,27 @@ describe("individual attendance report", () => {
     const where = mocks.sessions.mock.calls[0][0].where;
     expect(where).toMatchObject({ clubId: "club-1", players: { some: { playerId: "player-1" } }, status: { not: "cancelled" } });
     expect(where).not.toHaveProperty("scopeKey");
+  });
+
+  it.each(["2025-10-21", "2021-10-21"])("returns the entire requested history starting %s", async (from) => {
+    mocks.sessions.mockResolvedValue([from, "2026-10-21"].map((date) => ({
+      trainingDate: new Date(`${date}T00:00:00Z`),
+      players: [{ playerId: "player-1", present: true, reasonCode: null }],
+    })));
+    const response = await report("playerId=player-1", from, "2026-10-21");
+    expect(response.status).toBe(200);
+    const data = await response.json();
+    expect(data.trainingDates).toEqual([from, "2026-10-21"]);
+    expect(Object.keys(data.players[0].attendance)).toEqual([from, "2026-10-21"]);
+    expect(mocks.sessions.mock.calls[0][0].where).toMatchObject({
+      clubId: "club-1",
+      trainingDate: { gte: new Date(`${from}T00:00:00Z`), lte: new Date("2026-10-21T00:00:00Z") },
+    });
+  });
+
+  it.each([["bad", "2026-10-21"], ["2026-10-21", "2026-10-01"]])("still rejects invalid or reversed dates: %s to %s", async (from, to) => {
+    expect((await report("", from, to)).status).toBe(400);
+    expect(mocks.club).not.toHaveBeenCalled();
   });
 
   it("uses all of the player's custom schedules and absence records", async () => {

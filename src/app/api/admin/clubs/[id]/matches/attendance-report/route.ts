@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { verifyAdminToken } from "@/lib/adminAuth";
-import { isIsoDate, isoDateToUtcMidnight } from "@/lib/training";
+import { isIsoDate } from "@/lib/training";
 import { buildMatchAttendanceReport } from "@/lib/matchAttendanceReport";
 
 export const runtime = "nodejs";
@@ -15,8 +15,8 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
   const search = request.nextUrl.searchParams;
   const from = search.get("from") ?? "";
   const to = search.get("to") ?? "";
-  if (!isIsoDate(from) || !isIsoDate(to) || from > to || isoDateToUtcMidnight(to).getTime() - isoDateToUtcMidnight(from).getTime() > 180 * 86_400_000) {
-    return NextResponse.json({ error: "Невалиден период (максимум 180 дни)." }, { status: 400 });
+  if (!isIsoDate(from) || !isIsoDate(to) || from > to) {
+    return NextResponse.json({ error: "Невалиден период." }, { status: 400 });
   }
   const playerId = search.get("playerId")?.trim() || null;
   const coachGroupId = search.get("coachGroupId")?.trim() || null;
