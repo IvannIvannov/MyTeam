@@ -384,13 +384,17 @@ export async function GET(
 
     const sessionAttendanceMap = new Map<string, Map<string, { present: boolean; reasonCode: string | null }>>();
     const registrationByPlayer = new Map(players.map((p) => [p.id, p]));
+    const belongsToCurrentTeam = (player: { teamGroup?: number | null }) => {
+      if (targetPlayer) return true;
+      if (trainingGroup) return player.teamGroup != null && trainingGroup.teamGroups.includes(player.teamGroup);
+      return teamGroup === null || player.teamGroup === teamGroup;
+    };
     const eligibleForSession = (player: AttendancePlayer & { id: string; teamGroup?: number | null }, session: (typeof storedSessions)[number]) => {
       const row = session.players.find((entry) => entry.playerId === player.id);
       // A locked roster is the historical membership snapshot, even when its
       // corrected start time falls outside the player's enrollment period.
       if (session.rosterLockedAt) return Boolean(row);
-      if (!targetPlayer && trainingGroup && (player.teamGroup == null || !trainingGroup.teamGroups.includes(player.teamGroup))) return false;
-      if (!targetPlayer && !trainingGroup && teamGroup !== null && player.teamGroup !== teamGroup) return false;
+      if (!belongsToCurrentTeam(player)) return false;
       return isEligibleForMembership(player, utcDateToIsoDate(session.trainingDate), session.trainingTime, session.scopeKey ?? scopeKey, row?.attendanceRecorded);
     };
     for (const session of storedSessions) {
@@ -436,9 +440,10 @@ export async function GET(
         teamGroup: p.teamGroup,
         attendance: Object.fromEntries(
           reportTrainingDates.filter((d) => {
-            if (optOutMap.get(p.id)?.has(d)) return true;
             const sessions = storedSessions.filter((s) => utcDateToIsoDate(s.trainingDate) === d);
             if (sessions.length) return sessions.some((s) => eligibleForSession(p, s));
+            if (!belongsToCurrentTeam(p)) return false;
+            if (optOutMap.get(p.id)?.has(d)) return true;
             return fallbackSchedules.some(({ schedule, dates }) => {
               if (!dates.has(d)) return false;
               const times = schedule.trainingDateTimes as Record<string, string> | null;

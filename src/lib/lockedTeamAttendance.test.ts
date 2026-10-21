@@ -3,7 +3,7 @@ import { NextRequest } from "next/server";
 import { GET } from "@/app/api/admin/clubs/[id]/training-attendance/route";
 import { GET as report } from "@/app/api/admin/clubs/[id]/training-attendance/report/route";
 
-const mocks = vi.hoisted(() => ({ player: vi.fn(), sessions: vi.fn(), club: vi.fn(), group: vi.fn() }));
+const mocks = vi.hoisted(() => ({ player: vi.fn(), sessions: vi.fn(), club: vi.fn(), group: vi.fn(), optOuts: vi.fn() }));
 const groupId = "10000000-0000-4000-8000-000000000002";
 const date = "2026-10-21";
 const scopeKey = `training_group:${groupId}`;
@@ -17,7 +17,7 @@ vi.mock("@/lib/db", () => ({ prisma: {
   clubTrainingGroupSchedule: { findUnique: mocks.group },
   player: { findMany: mocks.player },
   trainingSession: { findMany: mocks.sessions, findFirst: async () => ({ status: "scheduled" }) },
-  trainingOptOut: { findMany: async () => [] }, trainingNote: { findFirst: async () => null },
+  trainingOptOut: { findMany: mocks.optOuts }, trainingNote: { findFirst: async () => null },
 } }));
 afterEach(() => vi.useRealTimers());
 
@@ -28,6 +28,7 @@ it.each([
 ] as const)("keeps locked departed members and their attendance for %s, present=%s", async (paymentWorkflow, present) => {
   vi.useFakeTimers();
   vi.setSystemTime(new Date("2026-10-21T09:00Z"));
+  mocks.optOuts.mockResolvedValue([]);
   mocks.club.mockResolvedValue({ id: "club", name: "Club", paymentWorkflow, trainingGroupMode: "team_group" });
   mocks.group.mockResolvedValue({ id: groupId, teamGroups: [2014], trainingDates: [date, "2026-10-22"], trainingWeekdays: [], trainingDateTimes: { [date]: "18:00", "2026-10-22": "18:00" }, trainingTime: "18:00", trainingWindowDays: 30, trainingDurationMinutes: 60, trainingFieldId: null, trainingFieldPieceIds: [], players: [{ playerId: "new" }] });
   const departed = { id: "old", fullName: "Old", teamGroup: 2015, createdAt: new Date("2026-01-01"), cards: [], attendanceMemberships: [{ scopeKey, joinedAt: new Date("2026-01-01"), leftAt: new Date("2026-10-21T08:00Z") }] };
@@ -47,11 +48,21 @@ it.each([
       expect(data.stats).toEqual({ total: 1, attending: present ? 1 : 0, optedOut: present ? 0 : 1 });
       expect(data.upcomingDates[1].stats.total).toBe(1);
     }
-    const response = await report(new NextRequest(`http://localhost/report?${filter}&from=${date}&to=2026-10-22`, { headers: { cookie: "admin_session=test" } }), { params: Promise.resolve({ id: "club" }) });
-    expect(response.status).toBe(200);
-    const data = await response.json();
-    const old = data.players.find((player: { id: string }) => player.id === "old");
-    expect(old.attendance[date].present).toBe(present);
-    expect(old.attendance["2026-10-22"]).toBeUndefined();
+    for (const storedFutureSession of [true, false]) {
+      for (const hasOptOut of [false, true]) {
+        mocks.sessions.mockResolvedValue([session, ...(storedFutureSession ? [{ ...session, id: "next", trainingDate: new Date("2026-10-22"), rosterLockedAt: null, players: [{ playerId: "new", present: true }] }] : [])]);
+        mocks.optOuts.mockResolvedValue(hasOptOut ? [{ playerId: "old", trainingDate: new Date("2026-10-22"), reasonCode: "personal" }] : []);
+        const response = await report(new NextRequest(`http://localhost/report?${filter}&from=${date}&to=2026-10-22`, { headers: { cookie: "admin_session=test" } }), { params: Promise.resolve({ id: "club" }) });
+        expect(response.status).toBe(200);
+        const data = await response.json();
+        const old = data.players.find((player: { id: string }) => player.id === "old");
+        expect(old.attendance[date].present).toBe(present);
+        expect(old.attendance["2026-10-22"]).toBeUndefined();
+        const current = data.players.find((player: { id: string }) => player.id === "new");
+        expect(current.attendance["2026-10-22"]).toBeDefined();
+      }
+    }
+    mocks.optOuts.mockResolvedValue([]);
+    mocks.sessions.mockResolvedValue([session, { ...session, id: "next", trainingDate: new Date("2026-10-22"), rosterLockedAt: null, players: [{ playerId: "new", present: true }] }]);
   }
 });
