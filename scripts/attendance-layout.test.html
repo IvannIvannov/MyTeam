@@ -1,0 +1,87 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Attendance dialog layout regression</title>
+<h1>Attendance dialog layout regression</h1>
+<p>Serve the repository root, then open this file. Each frame uses the production styles.</p>
+<pre id="results">Running…</pre>
+<div id="frames"></div>
+<script type="module">
+  // Run with: python -m http.server 8765 --bind 127.0.0.1
+  // Open http://127.0.0.1:8765/scripts/attendance-layout.test.html
+  const scenarios = [
+    [375, 667], [360, 800], [667, 375], [800, 360], [1440, 900],
+  ].flatMap(([width, height]) => [false, true].map(edit => ({ width, height, edit })));
+  if (new URLSearchParams(location.search).has("preview")) {
+    scenarios.splice(1);
+    const previewStyle = document.createElement("style");
+    previewStyle.textContent = "body{margin:0}h1,p,#results{display:none}iframe{display:block;border:0}";
+    document.head.append(previewStyle);
+  }
+  const styles = await Promise.all([
+    "/src/app/globals.css", "/src/app/admin/members/page.css",
+  ].map(async path => {
+    const response = await fetch(path, { cache: "no-store" });
+    if (!response.ok) throw new Error(`Could not load ${path}`);
+    return response.text();
+  }));
+  const labels = ["Събития", "От", "До", "Вид", "Треньор", "Треньорска група"];
+  const values = ["Тренировки", "2026-09-21", "2026-10-20", "Отбор", "Светослав Каламов", "Локомотив - 1"];
+  const fields = labels.map((label, i) => `<div class="rd-field"><label class="rd-label">${label}</label>
+    <div class="rd-select-wrap${i === 1 || i === 2 ? "" : " acd-custom-select"}"><${i === 1 || i === 2 ? `input type="date" value="${values[i]}" class="rd-date-input"` : `button class="rd-select acd-select-trigger" type="button"`}>${i === 1 || i === 2 ? "" : `<span>${values[i]}</span></button>`}</div></div>`).join("");
+  const dates = Array.from({ length: 20 }, (_, i) => `<th class="acd-th-date"><span class="acd-date-label">${20 - i}\nОкт</span></th>`).join("");
+  const rows = Array.from({ length: 25 }, (_, i) => `<tr><td class="acd-td-name">Състезател ${i + 1}</td>${"<td class='acd-cell acd-cell--present'>✓</td>".repeat(20)}<td class="acd-td-pct">100%</td></tr>`).join("");
+  const results = [];
+  for (const { width, height, edit } of scenarios) {
+    const frame = document.createElement("iframe");
+    frame.width = width;
+    frame.height = height;
+    frame.title = `${width}×${height} ${edit ? "edit" : "view"}`;
+    const loaded = new Promise(resolve => frame.onload = resolve);
+    frame.srcdoc = `<!doctype html><meta charset="utf-8"><style>${styles.join("\n")}</style>
+      <div class="amp-page"><div class="rd-overlay"><div class="rd-dialog acd-dialog">
+      <button class="rd-close" aria-label="Затвори">×</button>
+      <div class="rd-header"><h2 class="rd-title">Присъствия на тренировки</h2>
+      <p class="rd-subtitle">Само за треньорска група: Светослав Каламов</p></div>
+      <div class="rd-filters">${fields}</div>
+      <div class="acd-table-wrap"><table class="acd-table"><thead><tr><th class="acd-th-name">Състезател</th>${dates}<th class="acd-th-pct">%</th></tr></thead><tbody>${rows}</tbody></table></div>
+      <div class="rd-footer" style="margin-top:4px;padding-top:12px;border-top:1px solid #222">
+      ${edit ? '<button class="rd-footer-btn" disabled>Запази</button><button class="rd-footer-btn">Отмени</button>' : '<button class="rd-footer-btn">Отпечатай</button><button class="rd-footer-btn">Редактирай</button>'}
+      </div></div></div></div>`;
+    document.querySelector("#frames").append(frame);
+    await loaded;
+    const doc = frame.contentDocument;
+    const dialog = doc.querySelector(".acd-dialog");
+    const wrap = doc.querySelector(".acd-table-wrap");
+    const first = doc.querySelector("tbody tr");
+    const header = doc.querySelector("thead");
+    const footer = doc.querySelector(".rd-footer");
+    const errors = [];
+    const initialFirstRect = first.getBoundingClientRect();
+    const initialDialogRect = dialog.getBoundingClientRect();
+    if (initialFirstRect.bottom > Math.min(initialDialogRect.bottom, height) - 16) {
+      errors.push("first player is below the dialog viewport when opened");
+    }
+    if (wrap.clientHeight < header.offsetHeight + first.offsetHeight) {
+      errors.push(`table collapsed: ${wrap.clientHeight}px; needs ${header.offsetHeight + first.offsetHeight}px for header and player`);
+    }
+    first.scrollIntoView({ block: "center" });
+    const firstRect = first.getBoundingClientRect();
+    const wrapRect = wrap.getBoundingClientRect();
+    if (firstRect.bottom > Math.min(wrapRect.bottom, height) + 1 || firstRect.top < Math.max(wrapRect.top + header.offsetHeight, 0) - 1) {
+      errors.push("first player cannot be fully exposed by scrolling");
+    }
+    wrap.scrollLeft = wrap.scrollWidth;
+    if (wrap.scrollLeft === 0) errors.push("later training columns cannot be reached horizontally");
+    doc.querySelector("tbody tr:last-child").scrollIntoView({ block: "center" });
+    const lastRect = doc.querySelector("tbody tr:last-child").getBoundingClientRect();
+    if (lastRect.bottom > Math.min(wrap.getBoundingClientRect().bottom, height) + 1) errors.push("last player is clipped");
+    footer.scrollIntoView({ block: "end" });
+    if (footer.getBoundingClientRect().bottom > height + 1) errors.push("footer cannot be reached");
+    dialog.scrollTop = 0;
+    wrap.scrollTop = 0;
+    wrap.scrollLeft = 0;
+    results.push({ width, height, mode: edit ? "edit" : "view", tableHeight: wrap.clientHeight, initialFirstPlayerBottom: initialFirstRect.bottom, visibleBottom: Math.min(initialDialogRect.bottom, height) - 16, passed: errors.length === 0, errors });
+    document.querySelector("#results").textContent = JSON.stringify(results, null, 2);
+  }
+  document.title = results.every(result => result.passed) ? "PASS: attendance layout" : "FAIL: attendance layout";
+</script>

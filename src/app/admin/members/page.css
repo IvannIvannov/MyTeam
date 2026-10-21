@@ -4612,6 +4612,12 @@
   max-width: 92vw;
 }
 
+/* Keep stacked filters from collapsing the table on short screens.
+   The dialog scrolls vertically when its sections exceed the viewport. */
+.acd-dialog > * {
+  flex-shrink: 0;
+}
+
 .acd-table-wrap {
   overflow-x: auto;
   overflow-y: auto;
@@ -4906,6 +4912,31 @@
     padding: 16px;
   }
 
+  .acd-dialog .rd-filters {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  .acd-dialog .rd-field,
+  .acd-dialog .acd-custom-select {
+    min-width: 0;
+  }
+
+  .acd-dialog .rd-filters .rd-date-input {
+    width: 100%;
+    min-width: 0;
+    padding-inline: 8px;
+    font-size: 13px;
+  }
+
+  .acd-dialog .acd-select-trigger span {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
   .rd-field.acd-player-search-field {
     width: 100%;
     min-width: 0;
@@ -4927,6 +4958,36 @@
   .acd-td-name {
     min-width: 100px;
     max-width: 130px;
+  }
+}
+
+@media (min-width: 641px) and (max-width: 900px) and (max-height: 480px) {
+  .acd-dialog {
+    gap: 8px;
+    padding: 16px;
+  }
+
+  .acd-dialog .rd-filters {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  .acd-dialog .rd-field,
+  .acd-dialog .acd-custom-select {
+    min-width: 0;
+  }
+
+  .acd-dialog .rd-date-input {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .acd-dialog .acd-select-trigger span {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 }
 
