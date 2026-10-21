@@ -61,10 +61,14 @@ function normalizeTrainingDates(raw: unknown): string[] {
   return Array.from(new Set(dates)).sort((a, b) => a.localeCompare(b));
 }
 
-function normalizeStoredTrainingDateTimes(raw: unknown, trainingDates: string[]): Record<string, string> {
-  if (!raw || typeof raw !== "object") return {};
+function normalizeStoredTrainingDateTimes(raw: unknown, trainingDates: string[], fallbackTrainingTime?: string | null): Record<string, string> {
   const allowedDates = new Set(trainingDates);
   const result: Record<string, string> = {};
+  const fallback = normalizeTrainingTime(fallbackTrainingTime);
+  if (fallback) {
+    for (const date of trainingDates) result[date] = fallback;
+  }
+  if (!raw || typeof raw !== "object") return result;
   for (const [date, value] of Object.entries(raw as Record<string, unknown>)) {
     if (!allowedDates.has(date)) continue;
     const normalized = normalizeTrainingTime(value);
@@ -194,6 +198,8 @@ export async function PATCH(
   const hasTrainingFieldPiece = Object.prototype.hasOwnProperty.call(payload, "trainingFieldPieceIds");
   const hasTrainingFieldSelections = Object.prototype.hasOwnProperty.call(payload, "trainingFieldSelections");
   const hasColor = Object.prototype.hasOwnProperty.call(payload, "color");
+  const hasScheduleChanges = hasTrainingDates || hasTrainingTime || hasTrainingDateTimes ||
+    hasTrainingDuration || hasTrainingField || hasTrainingFieldPiece || hasTrainingFieldSelections;
   if (!hasName && !hasPlayerIds && !hasTrainingDates && !hasTrainingTime && !hasTrainingDateTimes && !hasTrainingDuration && !hasTrainingField && !hasTrainingFieldPiece && !hasTrainingFieldSelections && !hasColor) {
     return NextResponse.json({ error: "Nothing to update." }, { status: 400 });
   }
@@ -231,9 +237,11 @@ export async function PATCH(
       : undefined;
     const fallbackTrainingTime = hasTrainingTime ? normalizeTrainingTime(payload.trainingTime) : existing.trainingTime ?? null;
     const rawTrainingDateTimes = hasTrainingDateTimes ? payload.trainingDateTimes : existing.trainingDateTimes;
-    const nextTrainingDateTimes = nextTrainingDates.length > 0
-      ? buildTrainingDateTimes({ rawTrainingDateTimes, trainingDates: nextTrainingDates, fallbackTrainingTime })
-      : {};
+    const nextTrainingDateTimes = hasScheduleChanges
+      ? nextTrainingDates.length > 0
+        ? buildTrainingDateTimes({ rawTrainingDateTimes, trainingDates: nextTrainingDates, fallbackTrainingTime })
+        : {}
+      : normalizeStoredTrainingDateTimes(rawTrainingDateTimes, nextTrainingDates, fallbackTrainingTime);
     const nextTrainingTime = fallbackTrainingTime ?? Object.values(nextTrainingDateTimes)[0] ?? null;
     let nextTrainingDurationMinutes = existing.trainingDurationMinutes;
     if (hasTrainingDuration) {
@@ -264,19 +272,20 @@ export async function PATCH(
       }
     }
     let hasTrainingFields = false;
-    if (nextTrainingDates.length > 0 || hasTrainingField || hasTrainingFieldPiece || hasTrainingFieldSelections) {
+    if (hasScheduleChanges && (nextTrainingDates.length > 0 || hasTrainingField || hasTrainingFieldPiece || hasTrainingFieldSelections)) {
       hasTrainingFields = await clubHasTrainingFields(clubId);
       if (!hasTrainingFields) {
         nextTrainingFieldId = null;
         nextTrainingFieldPieceIds = [];
       }
     }
-    const nextTrainingFieldSelections = parseTrainingFieldSelectionsByDate({
+    const nextTrainingFieldSelections = hasScheduleChanges ? parseTrainingFieldSelectionsByDate({
       trainingFieldSelections: hasTrainingFieldSelections ? payload.trainingFieldSelections : existing.trainingFieldSelections,
       trainingDates: nextTrainingDates,
       fallback: { trainingFieldId: nextTrainingFieldId, trainingFieldPieceIds: nextTrainingFieldPieceIds },
-    });
-    if (nextTrainingDates.length > 0) {
+    }) : {};
+    // Membership and metadata edits must not require repairing an unchanged legacy schedule.
+    if (hasScheduleChanges && nextTrainingDates.length > 0) {
       if (hasTrainingFields && !nextTrainingFieldId) {
         return NextResponse.json({ error: "Треньорът трябва да избере терен." }, { status: 400 });
       }
@@ -441,16 +450,9 @@ export async function PATCH(
         },
       },
     });
-    if (
-      hasTrainingDates ||
-      hasTrainingTime ||
-      hasTrainingDateTimes ||
-      hasTrainingDuration ||
-      hasTrainingField ||
-      hasTrainingFieldPiece ||
-      hasPlayerIds ||
-      hasTrainingFieldSelections
-    ) {
+    // Membership triggers update existing rosters atomically with enrollment.
+    // Rebuilding the schedule here would restore cancellations and rewrite history.
+    if (hasScheduleChanges) {
       const todayIso = getTodayIsoDateInTimeZone(FIXED_TIME_ZONE);
       await prisma.$transaction(
         (tx) =>
@@ -459,7 +461,7 @@ export async function PATCH(
             clubId,
             scope: { type: "customGroup", id: groupId },
             trainingDates: updated.trainingDates ?? [],
-            trainingDateTimes: normalizeStoredTrainingDateTimes(updated.trainingDateTimes, updated.trainingDates ?? []),
+            trainingDateTimes: normalizeStoredTrainingDateTimes(updated.trainingDateTimes, updated.trainingDates ?? [], updated.trainingTime),
             trainingDurationMinutes: updated.trainingDurationMinutes,
             trainingFieldId: updated.trainingFieldId,
             trainingFieldPieceIds: updated.trainingFieldPieceIds,

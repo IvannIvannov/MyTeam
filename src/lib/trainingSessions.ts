@@ -1,7 +1,7 @@
 import { Prisma } from "@prisma/client";
 import { trainingRequiresCheckIn } from "@/lib/trainingAttendanceDefaults";
 import { prisma } from "@/lib/db";
-import { isEligibleForMembership, type AttendancePlayer } from "@/lib/attendanceEligibility";
+import { isEligibleForMembership, isEligibleForTraining, type AttendancePlayer } from "@/lib/attendanceEligibility";
 import { isoDateToUtcMidnight, utcDateToIsoDate } from "@/lib/training";
 
 type TrainingSessionScope =
@@ -16,6 +16,7 @@ type TrainingSessionWriter = {
   $queryRaw: typeof prisma.$queryRaw;
   club: Pick<typeof prisma.club, "findUniqueOrThrow">;
   trainingSession: {
+    findMany(args: Prisma.TrainingSessionFindManyArgs): Promise<Array<{ id: string; trainingDate: Date; trainingTime: string | null; status: string; removedFromSchedule: boolean }>>;
     updateMany(args: Prisma.TrainingSessionUpdateManyArgs): Promise<Prisma.BatchPayload>;
     deleteMany(args: Prisma.TrainingSessionDeleteManyArgs): Promise<Prisma.BatchPayload>;
     upsert(args: Prisma.TrainingSessionUpsertArgs): Promise<{ id: string }>;
@@ -120,6 +121,14 @@ export async function syncFutureTrainingSessions(input: {
   });
 
   if (futureDates.length === 0) return;
+  // The cleanup above locks existing sessions. Read their original state before
+  // applying a schedule edit so a new time cannot move past attendance forward.
+  const existingSessions = await input.tx.trainingSession.findMany({
+    where: { clubId: input.clubId, scopeKey: scopeData.scopeKey, occurrenceKey: "", trainingDate: { in: futureDates.map(isoDateToUtcMidnight) } },
+    select: { id: true, trainingDate: true, trainingTime: true, status: true, removedFromSchedule: true },
+  });
+  const existingByDate = new Map(existingSessions.map((session) => [utcDateToIsoDate(session.trainingDate), session]));
+  const now = new Date();
   const club = await input.tx.club.findUniqueOrThrow({ where: { id: input.clubId }, select: { paymentWorkflow: true } });
   const requiresCheckIn = trainingRequiresCheckIn(club.paymentWorkflow);
 
@@ -149,6 +158,9 @@ export async function syncFutureTrainingSessions(input: {
   }
 
   for (const date of futureDates) {
+    const existing = existingByDate.get(date);
+    if (existing?.status === "cancelled" && !existing.removedFromSchedule) continue;
+    const preserveRoster = existing && !isEligibleForTraining(now, date, existing.trainingTime);
     const fieldSelection = input.trainingFieldSelections?.[date];
     const session = await input.tx.trainingSession.upsert({
       where: {
@@ -180,10 +192,13 @@ export async function syncFutureTrainingSessions(input: {
       },
       select: { id: true },
     });
+    // Schedule corrections may change the time, but must not rewrite attendance
+    // from a session that had already started before this edit.
+    if (preserveRoster) continue;
     const optOutByPlayerId = optOutsByDate.get(date) ?? new Map();
     const roster = await input.tx.trainingSessionPlayer.findMany({ where: { trainingSessionId: session.id }, select: { playerId: true } });
     const enrolled = new Set(roster.map((player) => player.playerId));
-    await input.tx.trainingSessionPlayer.deleteMany({ where: { trainingSessionId: session.id, playerId: { notIn: players.map((player) => player.id) }, creditChargedAt: null, attendanceRecorded: false } });
+    await input.tx.trainingSessionPlayer.deleteMany({ where: { trainingSessionId: session.id, playerId: { notIn: players.map((player) => player.id) }, creditChargedAt: null, attendanceRecorded: false, reasonCode: null, reasonText: null } });
     const newPlayers = players.filter((player) => !enrolled.has(player.id) && isEligibleForMembership(player, date, input.trainingDateTimes[date], scopeData.scopeKey));
     // Legacy views use day-wide opt-outs. Seed only new roster entries so
     // saving a schedule never resets an existing attendance decision.
