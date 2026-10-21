@@ -15,7 +15,6 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const FIXED_TIME_ZONE = "Europe/Sofia";
-const MAX_RANGE_DAYS = 180;
 
 function isTransientPrismaConnectionError(error: unknown) {
   if (!error || typeof error !== "object") {
@@ -134,9 +133,6 @@ export async function GET(
 
   if (fromMs > toMs) {
     return NextResponse.json({ error: "'from' must not be after 'to'" }, { status: 400 });
-  }
-  if (toMs - fromMs > MAX_RANGE_DAYS * 86_400_000) {
-    return NextResponse.json({ error: `Date range cannot exceed ${MAX_RANGE_DAYS} days` }, { status: 400 });
   }
 
   let teamGroup: number | null = null;
