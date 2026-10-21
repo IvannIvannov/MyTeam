@@ -407,6 +407,7 @@ export default function MemberCardPage({
   // Payment modal
   const [paymentModalOpen, setPaymentModalOpen] = useState(false);
   const [paymentModalMode, setPaymentModalMode] = useState<"create" | "delete">("create");
+  const [paymentDeleteConfirmOpen, setPaymentDeleteConfirmOpen] = useState(false);
   const [calendarYear, setCalendarYear] = useState(new Date().getFullYear());
   const [selectedYM, setSelectedYM] = useState<{ year: number; month: number } | null>(null);
   const [selectedPaymentDeleteMonths, setSelectedPaymentDeleteMonths] = useState<Array<{ year: number; month: number }>>([]);
@@ -589,6 +590,7 @@ export default function MemberCardPage({
   const paymentModalYM = firstUnpaidYM ?? { year: today.getFullYear(), month: today.getMonth() };
 
   const openPaymentModal = () => {
+    setPaymentDeleteConfirmOpen(false);
     setPaymentModalMode("create");
     setCalendarYear(paymentModalYM.year);
     setSelectedYM(paymentModalYM);
@@ -604,6 +606,7 @@ export default function MemberCardPage({
   };
 
   const openPaymentDeleteModal = () => {
+    setPaymentDeleteConfirmOpen(false);
     const initialYear = lastPaidYM?.year ?? firstUnpaidYM?.year ?? new Date().getFullYear();
     setPaymentModalMode("delete");
     setCalendarYear(initialYear);
@@ -1575,7 +1578,7 @@ export default function MemberCardPage({
   };
 
   const handleDeletePayments = async () => {
-    if (!member || selectedPaymentDeleteMonths.length === 0) return;
+    if (!member || !paymentDeleteConfirmOpen || paymentLoading || selectedPaymentDeleteMonths.length === 0) return;
     setPaymentLoading(true);
     setPaymentError(null);
     try {
@@ -1600,6 +1603,7 @@ export default function MemberCardPage({
         setMember((await refreshed.json()) as MemberProfile);
       }
       setSelectedPaymentDeleteMonths([]);
+      setPaymentDeleteConfirmOpen(false);
     } catch (e) {
       setPaymentError(e instanceof Error ? e.message : "Възникна грешка");
     } finally {
@@ -3715,13 +3719,43 @@ export default function MemberCardPage({
 
         {/* ══ PAYMENT MODAL ══ */}
         {paymentModalOpen && (
-          <div className="pm-overlay" onClick={() => setPaymentModalOpen(false)}>
+          <div className="pm-overlay" onClick={() => !paymentLoading && setPaymentModalOpen(false)}>
             <div className="pm-modal" onClick={(e) => e.stopPropagation()}>
 
-              <button className="pm-close" onClick={() => setPaymentModalOpen(false)}>
+              <button className="pm-close" onClick={() => setPaymentModalOpen(false)} disabled={paymentLoading} aria-label="Затвори">
                 <XIcon size={16} />
               </button>
 
+              {paymentDeleteConfirmOpen ? (
+                <div role="alertdialog" aria-labelledby="payment-delete-confirm-title" aria-describedby="payment-delete-confirm-description">
+                  <div className="pm-header">
+                    <div>
+                      <h2 className="pm-title" id="payment-delete-confirm-title">Потвърждение за изтриване</h2>
+                      <p className="pm-name">{member.name}</p>
+                    </div>
+                  </div>
+                  <div className="pm-divider" />
+                  <div className="pm-delete-confirm-body">
+                    <p className="pm-delete-confirm-question" id="payment-delete-confirm-description">Сигурни ли сте, че искате да изтриете избраните плащания?</p>
+                    <div className="pm-delete-confirm-months" aria-label="Избрани месеци за изтриване">
+                      {selectedPaymentDeleteMonths.map((item) => (
+                        <span className="pm-delete-confirm-month" key={`${item.year}-${item.month}`}>
+                          {MONTH_NAMES_BG_FULL[item.month]} {item.year}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                  {paymentError && <div className="pm-error">{paymentError}</div>}
+                  <div className="pm-divider" />
+                  <div className="pm-actions">
+                    <button className="pm-btn pm-btn--cancel" autoFocus disabled={paymentLoading} onClick={() => { setPaymentDeleteConfirmOpen(false); setPaymentError(null); }}>Отказ</button>
+                    <button className="pm-btn pm-btn--danger" disabled={paymentLoading} onClick={handleDeletePayments}>
+                      {paymentLoading ? "Изтриване..." : "Да, изтрий"}
+                    </button>
+                  </div>
+                </div>
+              ) : (
+              <>
               <div className="pm-header">
                 <div className="pm-title-icon">⚽</div>
                 <div>
@@ -3951,7 +3985,7 @@ export default function MemberCardPage({
                 {selectedPaymentDeleteMonths.length > 0 && (
                   <button
                     className="pm-btn pm-btn--danger"
-                    onClick={handleDeletePayments}
+                    onClick={() => { setPaymentError(null); setPaymentDeleteConfirmOpen(true); }}
                     disabled={paymentLoading}
                   >
                     {paymentLoading ? "Изтриване..." : "Изтрий плащания"}
@@ -4002,7 +4036,8 @@ export default function MemberCardPage({
                   </>
                 )}
               </div>
-
+              </>
+              )}
             </div>
           </div>
         )}
