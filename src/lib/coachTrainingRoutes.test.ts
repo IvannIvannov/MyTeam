@@ -100,6 +100,20 @@ describe("coach training API boundaries", () => {
     expect(mocks.trainingOptOut.upsert).not.toHaveBeenCalled();
     expect(mocks.trainingSession.findFirst.mock.calls[0][0].where.scopeId).toEqual({ in: [groupId] });
   });
+  it.each([POST, DELETE])("rejects a new member trying to enter a locked historical roster", async (update) => {
+    mocks.trainingSession.findFirst.mockResolvedValue({ ...session(secondId, "18:00", true), rosterLockedAt: new Date(), players: [] });
+    const response = await update(new NextRequest("http://localhost/training", { method: update === POST ? "POST" : "DELETE", body: JSON.stringify({ trainingSessionId: secondId, reasonCode: "sick" }) }), context);
+    expect(response.status).toBe(403);
+    expect(mocks.trainingSessionPlayer.upsert).not.toHaveBeenCalled();
+  });
+  it.each([POST, DELETE])("allows an existing locked roster member to update their attendance", async (update) => {
+    mocks.trainingSession.findFirst.mockResolvedValue({ ...session(secondId, "18:00", true), rosterLockedAt: new Date() });
+    const response = await update(new NextRequest("http://localhost/training", { method: update === POST ? "POST" : "DELETE", body: JSON.stringify({ trainingSessionId: secondId, reasonCode: "sick" }) }), context);
+    expect(response.status).toBe(200);
+    expect(mocks.trainingSessionPlayer.upsert).toHaveBeenCalledOnce();
+    expect(mocks.$queryRaw.mock.invocationCallOrder[0]).toBeLessThan(mocks.trainingSession.findFirst.mock.invocationCallOrder[0]);
+    expect(mocks.trainingSession.findFirst.mock.invocationCallOrder[0]).toBeLessThan(mocks.trainingSessionPlayer.upsert.mock.invocationCallOrder[0]);
+  });
   it("shows coach trainings alongside custom-group trainings, including different dates", async () => {
     const card = await mocks.card.findFirst();
     card.player.club.trainingGroupMode = "custom_group";

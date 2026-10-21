@@ -881,10 +881,18 @@ async function updateMemberSessionAttendance(context: NonNullable<Awaited<Return
   if (!/^[0-9a-f-]{36}$/i.test(id)) return NextResponse.json({ error: "Select an individual training" }, { status: 400 });
   const reason = optedOut ? parseOptOutReason(body.reasonCode, body.reasonText) : { code: null, text: null };
   if ("error" in reason) return NextResponse.json({ error: reason.error }, { status: 400 });
-  const row = await prisma.trainingSession.findFirst({ where: { id, clubId: context.clubId, scopeType: "coachGroup", scopeId: { in: context.playerCoachGroupIds }, status: "scheduled", trainingDate: { gte: isoDateToUtcMidnight(getTodayIsoDateInTimeZone(FIXED_TIME_ZONE)) } } });
-  if (!row) return NextResponse.json({ error: "Training not found" }, { status: 404 });
   const attendance = { present: !optedOut, reasonCode: reason.code, reasonText: reason.text, attendanceRecorded: true };
-  await prisma.trainingSessionPlayer.upsert({ where: { trainingSessionId_playerId: { trainingSessionId: id, playerId: context.playerId } }, update: attendance, create: { trainingSessionId: id, playerId: context.playerId, playerName: context.playerName, teamGroup: context.playerTeamGroup, ...attendance } });
+  const result = await prisma.$transaction(async (tx) => {
+    // Serialize with schedule corrections before deciding whether enrollment is allowed.
+    await tx.$queryRaw`SELECT id FROM training_sessions WHERE id = ${id}::uuid FOR UPDATE`;
+    const row = await tx.trainingSession.findFirst({ where: { id, clubId: context.clubId, scopeType: "coachGroup", scopeId: { in: context.playerCoachGroupIds }, status: "scheduled", trainingDate: { gte: isoDateToUtcMidnight(getTodayIsoDateInTimeZone(FIXED_TIME_ZONE)) } }, include: { players: { where: { playerId: context.playerId }, select: { playerId: true } } } });
+    if (!row) return { error: "Training not found", status: 404 } as const;
+    if (row.rosterLockedAt && !row.players.some((player) => player.playerId === context.playerId)) return { error: "Не можете да променяте присъствието си за тази тренировка.", status: 403 } as const;
+    await tx.trainingSessionPlayer.upsert({ where: { trainingSessionId_playerId: { trainingSessionId: id, playerId: context.playerId } }, update: attendance, create: { trainingSessionId: id, playerId: context.playerId, playerName: context.playerName, teamGroup: context.playerTeamGroup, ...attendance } });
+    return { row };
+  });
+  if ("error" in result) return NextResponse.json({ error: result.error }, { status: result.status });
+  const { row } = result;
   const date = utcDateToIsoDate(row.trainingDate);
   const coachGroupId = row.scopeId;
   const payload = buildCoachAttendancePayload({ clubId: context.clubId, playerName: context.playerName, trainingDate: date, optedOut, optOutReasonCode: reason.code, optOutReasonText: reason.text, coachGroupId });

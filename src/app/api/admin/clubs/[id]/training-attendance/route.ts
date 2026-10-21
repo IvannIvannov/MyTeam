@@ -518,12 +518,17 @@ export async function GET(
   const customPlayerIds = customTrainingGroup
     ? customTrainingGroup.players.map((item) => item.playerId)
     : [];
+  const attendanceSessions = await prisma.trainingSession.findMany({
+    where: { clubId: id, scopeKey, trainingDate: { in: upcomingDates.map(isoDateToUtcMidnight) }, status: { not: "cancelled" } },
+    select: { trainingDate: true, trainingTime: true, rosterLockedAt: true, players: { select: { playerId: true, present: true } } },
+  });
+  const lockedPlayerIds = attendanceSessions.filter((entry) => entry.rosterLockedAt).flatMap((entry) => entry.players.flatMap((row) => row.playerId ? [row.playerId] : []));
 
   const players = await prisma.player.findMany({
     where: {
       clubId: id,
       isActive: true,
-      ...(customTrainingGroup ? { id: { in: customPlayerIds } } : {}),
+      ...(customTrainingGroup ? { id: { in: Array.from(new Set([...customPlayerIds, ...lockedPlayerIds])) } } : {}),
       ...(trainingGroup ? { teamGroup: { in: trainingGroup.teamGroups } } : {}),
       ...(teamGroup !== null ? { teamGroup } : {}),
     },
@@ -547,7 +552,7 @@ export async function GET(
   const trainingDateAsDate = isoDateToUtcMidnight(trainingDate);
   const upcomingDatesAsDate = upcomingDates.map((date) => isoDateToUtcMidnight(date));
 
-  const [allOptOuts, note, sessionForDate, attendanceSessions] = await Promise.all([
+  const [allOptOuts, note, sessionForDate] = await Promise.all([
     playerIds.length > 0 && upcomingDatesAsDate.length > 0
       ? prisma.trainingOptOut.findMany({
           where: {
@@ -578,17 +583,17 @@ export async function GET(
       where: { clubId: id, scopeKey, trainingDate: trainingDateAsDate },
       select: { status: true },
     }),
-    prisma.trainingSession.findMany({
-      where: { clubId: id, scopeKey, trainingDate: { in: upcomingDatesAsDate }, status: { not: "cancelled" } },
-      select: { trainingDate: true, players: { select: { playerId: true, present: true } } },
-    }),
   ]);
 
   const optedOutCountByDate = new Map<string, number>();
   const selectedDateOptedOutSet = new Set<string>();
-  const eligiblePlayersOnDate = (date: string) => players.filter((player) => isEligibleForMembership(
-    player, date, storedSessionByDate.get(date)?.trainingTime ?? resolvedTrainingDateTimes[date] ?? resolvedDefaultTrainingTime, scopeKey,
-  ));
+  const attendanceSessionByDate = new Map(attendanceSessions.map((entry) => [utcDateToIsoDate(entry.trainingDate), entry]));
+  const eligiblePlayersOnDate = (date: string) => players.filter((player) => {
+    const entry = attendanceSessionByDate.get(date);
+    if (entry?.rosterLockedAt) return entry.players.some((row) => row.playerId === player.id);
+    if (customTrainingGroup && !customPlayerIds.includes(player.id)) return false;
+    return isEligibleForMembership(player, date, entry?.trainingTime ?? storedSessionByDate.get(date)?.trainingTime ?? resolvedTrainingDateTimes[date] ?? resolvedDefaultTrainingTime, scopeKey);
+  });
   for (const item of allOptOuts) {
     const dateIso = utcDateToIsoDate(item.trainingDate);
     if (!eligiblePlayersOnDate(dateIso).some((player) => player.id === item.playerId)) continue;
@@ -597,12 +602,12 @@ export async function GET(
       selectedDateOptedOutSet.add(item.playerId);
     }
   }
-  // Session attendance is authoritative after an individual training check-in.
+  // Check-ins and locked historical rosters override inferred day-wide attendance.
   const selectedAttendance = new Map<string, boolean>();
-  for (const session of trainingRequiresCheckIn(club.paymentWorkflow) ? attendanceSessions : []) {
+  for (const session of attendanceSessions.filter((entry) => trainingRequiresCheckIn(club.paymentWorkflow) || entry.rosterLockedAt)) {
     const date = utcDateToIsoDate(session.trainingDate);
     const attendance = new Map(session.players.filter((row) => row.playerId).map((row) => [row.playerId!, row.present]));
-    const absentCount = players.filter((player) => attendance.has(player.id) ? !attendance.get(player.id) : allOptOuts.some((row) => row.playerId === player.id && utcDateToIsoDate(row.trainingDate) === date)).length;
+    const absentCount = eligiblePlayersOnDate(date).filter((player) => attendance.has(player.id) ? !attendance.get(player.id) : allOptOuts.some((row) => row.playerId === player.id && utcDateToIsoDate(row.trainingDate) === date)).length;
     optedOutCountByDate.set(date, absentCount);
     if (date === trainingDate) for (const [playerId, present] of attendance) selectedAttendance.set(playerId, present);
   }
