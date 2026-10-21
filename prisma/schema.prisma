@@ -259,6 +259,8 @@ model Player {
   fullName             String                          @map("full_name")
   status               PlayerStatus                    @default(paid)
   createdAt            DateTime                        @default(now()) @map("created_at") @db.Timestamptz(6)
+  attendanceStartedAt  DateTime?                       @map("attendance_started_at") @db.Timestamptz(6)
+  attendanceMemberships AttendanceMembership[]
   updatedAt            DateTime                        @default(now()) @map("updated_at") @db.Timestamptz(6)
   jerseyNumber         String?                         @map("jersey_number")
   parentPhone          String?                         @map("parent_phone")
@@ -293,6 +295,18 @@ model Player {
   @@index([billingCoachGroupId])
   @@index([clubId])
   @@map("players")
+}
+
+model AttendanceMembership {
+  id        String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  playerId  String    @map("player_id") @db.Uuid
+  scopeKey  String    @map("scope_key")
+  joinedAt  DateTime? @map("joined_at") @db.Timestamptz(6)
+  leftAt    DateTime? @map("left_at") @db.Timestamptz(6)
+  player    Player    @relation(fields: [playerId], references: [id], onDelete: Cascade)
+
+  @@index([playerId, scopeKey])
+  @@map("attendance_memberships")
 }
 
 model ClubCustomTrainingGroupPlayer {

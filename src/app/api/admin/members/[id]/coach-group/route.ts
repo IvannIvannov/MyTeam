@@ -43,7 +43,7 @@ export async function PATCH(
 
   const player = await prisma.player.findUnique({
     where: { id },
-    select: { id: true, clubId: true },
+    select: { id: true, clubId: true, coachGroups: { select: { id: true } } },
   });
 
   if (!player) {

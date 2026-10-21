@@ -1,6 +1,7 @@
 import { Prisma } from "@prisma/client";
 import { trainingRequiresCheckIn } from "@/lib/trainingAttendanceDefaults";
 import { prisma } from "@/lib/db";
+import { isEligibleForMembership, type AttendancePlayer } from "@/lib/attendanceEligibility";
 import { isoDateToUtcMidnight, utcDateToIsoDate } from "@/lib/training";
 
 type TrainingSessionScope =
@@ -30,7 +31,7 @@ type TrainingSessionWriter = {
     findMany(args: Prisma.TrainingOptOutFindManyArgs): Promise<Array<{ playerId: string; trainingDate: Date; reasonCode: string | null; reasonText: string | null }>>;
   };
   player: {
-    findMany(args: Prisma.PlayerFindManyArgs): Promise<Array<{ id: string; fullName: string; teamGroup: number | null }>>;
+    findMany(args: Prisma.PlayerFindManyArgs): Promise<Array<{ id: string; fullName: string; teamGroup: number | null } & AttendancePlayer>>;
   };
 };
 
@@ -183,7 +184,7 @@ export async function syncFutureTrainingSessions(input: {
     const roster = await input.tx.trainingSessionPlayer.findMany({ where: { trainingSessionId: session.id }, select: { playerId: true } });
     const enrolled = new Set(roster.map((player) => player.playerId));
     await input.tx.trainingSessionPlayer.deleteMany({ where: { trainingSessionId: session.id, playerId: { notIn: players.map((player) => player.id) }, creditChargedAt: null, attendanceRecorded: false } });
-    const newPlayers = players.filter((player) => !enrolled.has(player.id));
+    const newPlayers = players.filter((player) => !enrolled.has(player.id) && isEligibleForMembership(player, date, input.trainingDateTimes[date], scopeData.scopeKey));
     // Legacy views use day-wide opt-outs. Seed only new roster entries so
     // saving a schedule never resets an existing attendance decision.
     if (newPlayers.length > 0) {
@@ -228,6 +229,7 @@ async function getExpectedPlayersForScope(
       id: true,
       fullName: true,
       teamGroup: true,
+      createdAt: true, attendanceStartedAt: true, attendanceMemberships: true,
     },
     orderBy: { fullName: "asc" },
   });

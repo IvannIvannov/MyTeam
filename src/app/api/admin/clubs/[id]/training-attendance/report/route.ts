@@ -7,7 +7,9 @@ import {
   isoDateToUtcMidnight,
   utcDateToIsoDate,
 } from "@/lib/training";
+import { isEligibleForMembership, type AttendancePlayer } from "@/lib/attendanceEligibility";
 import { getTrainingSessionScopeKey } from "@/lib/trainingSessions";
+import { trainingRequiresCheckIn } from "@/lib/trainingAttendanceDefaults";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -164,8 +166,9 @@ export async function GET(
       select: {
         id: true,
         trainingDates: true,
-        trainingWeekdays: true,
+        trainingWeekdays: true, trainingTime: true, trainingDateTimes: true,
         trainingGroupMode: true,
+        paymentWorkflow: true,
       },
     });
     if (!club) {
@@ -182,16 +185,19 @@ export async function GET(
     }
 
     // If playerId is given, resolve player and use their teamGroup for schedule lookup
-    let targetPlayer: { id: string; fullName: string; teamGroup: number | null } | null = null;
+    let targetPlayer: { id: string; fullName: string; teamGroup: number | null; createdAt: Date } & AttendancePlayer | null = null;
     if (playerId) {
       targetPlayer = await prisma.player.findFirst({
         where: {
           id: playerId,
           clubId: id,
           isActive: true,
-          ...(coachGroupId ? { coachGroups: { some: { id: coachGroupId } } } : {}),
+          ...(coachGroupId ? { OR: [
+            { coachGroups: { some: { id: coachGroupId } } },
+            { attendanceMemberships: { some: { scopeKey: `coach_group:${coachGroupId}` } } },
+          ] } : {}),
         },
-        select: { id: true, fullName: true, teamGroup: true },
+        select: { id: true, fullName: true, teamGroup: true, createdAt: true, attendanceStartedAt: true, attendanceMemberships: true },
       });
       if (!targetPlayer) {
         return NextResponse.json({ error: "Player not found" }, { status: 404 });
@@ -206,7 +212,7 @@ export async function GET(
             id: true,
             teamGroups: true,
             trainingDates: true,
-            trainingWeekdays: true,
+            trainingWeekdays: true, trainingTime: true, trainingDateTimes: true,
           },
         })
       : null;
@@ -220,7 +226,7 @@ export async function GET(
           select: {
             id: true,
             trainingDates: true,
-            trainingWeekdays: true,
+            trainingWeekdays: true, trainingTime: true, trainingDateTimes: true,
             players: { select: { playerId: true } },
           },
         })
@@ -234,7 +240,7 @@ export async function GET(
         ? null
         : await prisma.clubTrainingGroupSchedule.findUnique({
             where: { clubId_teamGroup: { clubId: id, teamGroup } },
-            select: { trainingDates: true, trainingWeekdays: true },
+            select: { trainingDates: true, trainingWeekdays: true, trainingTime: true, trainingDateTimes: true },
           });
 
     const trainingGroupOverride =
@@ -246,7 +252,7 @@ export async function GET(
               trainingDates: { isEmpty: false },
             },
             orderBy: { updatedAt: "desc" },
-            select: { trainingDates: true, trainingWeekdays: true },
+            select: { trainingDates: true, trainingWeekdays: true, trainingTime: true, trainingDateTimes: true },
           })
         : null;
 
@@ -270,10 +276,13 @@ export async function GET(
       ? await prisma.clubCustomTrainingGroup.findMany({
           where: {
             clubId: id,
-            players: { some: { playerId: targetPlayer.id } },
+            ...(targetPlayer.attendanceMemberships?.length ? { OR: [
+              { players: { some: { playerId: targetPlayer.id } } },
+              { id: { in: targetPlayer.attendanceMemberships.filter((period) => period.scopeKey.startsWith("custom_group:")).map((period) => period.scopeKey.slice("custom_group:".length)) } },
+            ] } : { players: { some: { playerId: targetPlayer.id } } }),
             ...(coachGroupId ? { coachGroupId } : {}),
           },
-          select: { trainingDates: true, trainingWeekdays: true },
+          select: { id: true, trainingDates: true, trainingWeekdays: true, trainingTime: true, trainingDateTimes: true },
         })
       : [];
 
@@ -297,19 +306,26 @@ export async function GET(
     const storedSessions = await prisma.trainingSession.findMany({
       where: {
         clubId: id,
-        ...(targetPlayer ? { players: { some: { playerId: targetPlayer.id } } } : { scopeKey }),
+        ...(targetPlayer
+          ? targetPlayer.attendanceMemberships?.length
+            ? { OR: [
+                { players: { some: { playerId: targetPlayer.id } } },
+                { scopeKey: { in: targetPlayer.attendanceMemberships.map((period) => period.scopeKey) } },
+              ] }
+            : { players: { some: { playerId: targetPlayer.id } } }
+          : { scopeKey }),
         trainingDate: { gte: isoDateToUtcMidnight(from), lte: isoDateToUtcMidnight(to) },
         status: { not: "cancelled" },
       },
       select: {
         id: true,
-        scopeType: true,
+        scopeType: true, scopeKey: true,
         trainingTime: true,
         trainingDate: true,
         players: {
           select: {
             playerId: true,
-            present: true,
+            present: true, attendanceRecorded: true,
             reasonCode: true,
           },
         },
@@ -335,12 +351,14 @@ export async function GET(
           where: {
             clubId: id,
             isActive: true,
-            ...(coachGroupId ? { coachGroups: { some: { id: coachGroupId } } } : {}),
-            ...(customTrainingGroup ? { id: { in: customTrainingGroup.players.map((p) => p.playerId) } } : {}),
+            AND: [
+              ...(coachGroupId ? [{ OR: [{ coachGroups: { some: { id: coachGroupId } } }, { attendanceMemberships: { some: { scopeKey: `coach_group:${coachGroupId}` } } }] }] : []),
+              ...(customTrainingGroup ? [{ OR: [{ id: { in: customTrainingGroup.players.map((p) => p.playerId) } }, { attendanceMemberships: { some: { scopeKey: `custom_group:${customTrainingGroup.id}` } } }] }] : []),
+            ],
             ...(trainingGroup ? { teamGroup: { in: trainingGroup.teamGroups } } : {}),
             ...(teamGroup !== null && !trainingGroup ? { teamGroup } : {}),
           },
-          select: { id: true, fullName: true, teamGroup: true },
+          select: { id: true, fullName: true, teamGroup: true, createdAt: true, attendanceStartedAt: true, attendanceMemberships: true },
           orderBy: { fullName: "asc" },
         });
 
@@ -366,10 +384,12 @@ export async function GET(
     }
 
     const sessionAttendanceMap = new Map<string, Map<string, { present: boolean; reasonCode: string | null }>>();
+    const registrationByPlayer = new Map(players.map((p) => [p.id, p]));
     for (const session of storedSessions) {
       const iso = utcDateToIsoDate(session.trainingDate);
       for (const row of session.players) {
         if (!row.playerId) continue;
+        if (!isEligibleForMembership(registrationByPlayer.get(row.playerId) ?? {}, iso, session.trainingTime, session.scopeKey ?? scopeKey, row.attendanceRecorded)) continue;
         if (!sessionAttendanceMap.has(row.playerId)) sessionAttendanceMap.set(row.playerId, new Map());
         const byDate = sessionAttendanceMap.get(row.playerId)!;
         const previous = byDate.get(iso);
@@ -390,12 +410,16 @@ export async function GET(
       const columns = storedSessions.map((s) => ({ key: `${utcDateToIsoDate(s.trainingDate)}T${s.trainingTime ?? "00:00"}#${s.id}`, session: s }));
       return NextResponse.json({
         trainingDates: columns.map((c) => c.key),
-        players: players.map((p) => ({ ...p, attendance: Object.fromEntries(columns.map(({ key, session }) => {
+        players: players.map((p) => ({ ...p, attendance: Object.fromEntries(columns.filter(({ session }) => isEligibleForMembership(p, utcDateToIsoDate(session.trainingDate), session.trainingTime, session.scopeKey ?? scopeKey, session.players.find(r => r.playerId === p.id)?.attendanceRecorded)).map(({ key, session }) => {
           const row = session.players.find((r) => r.playerId === p.id);
-          return [key, { present: row?.present ?? false, reasonCode: row?.present ? null : row?.reasonCode ?? null }];
+          return [key, { present: row?.present ?? !trainingRequiresCheckIn(club.paymentWorkflow), reasonCode: row?.present ? null : row?.reasonCode ?? null }];
         })) })),
       });
     }
+    const fallbackSchedules = (playerCustomGroups.length ? playerCustomGroups : [customTrainingGroup ?? trainingGroup ?? trainingGroupOverride ?? groupSchedule ?? club])
+      .map((schedule) => ({ schedule, dates: new Set(getTrainingDatesInRange({
+        from, to, trainingDates: schedule.trainingDates ?? [], trainingWeekdays: schedule.trainingWeekdays ?? [],
+      })) }));
     return NextResponse.json({
       trainingDates: reportTrainingDates,
       players: players.map((p) => ({
@@ -403,7 +427,17 @@ export async function GET(
         fullName: p.fullName,
         teamGroup: p.teamGroup,
         attendance: Object.fromEntries(
-          reportTrainingDates.map((d) => {
+          reportTrainingDates.filter((d) => {
+            if (optOutMap.get(p.id)?.has(d)) return true;
+            const sessions = storedSessions.filter((s) => utcDateToIsoDate(s.trainingDate) === d);
+            if (sessions.length) return sessions.some((s) => isEligibleForMembership(p, d, s.trainingTime, s.scopeKey ?? scopeKey, s.players.find(r => r.playerId === p.id)?.attendanceRecorded));
+            return fallbackSchedules.some(({ schedule, dates }) => {
+              if (!dates.has(d)) return false;
+              const times = schedule.trainingDateTimes as Record<string, string> | null;
+              const key = "id" in schedule && playerCustomGroups.length ? `custom_group:${schedule.id}` : scopeKey;
+              return isEligibleForMembership(p, d, times?.[d] ?? schedule.trainingTime, key);
+            });
+          }).map((d) => {
             const sessionAttendance = sessionAttendanceMap.get(p.id)?.get(d);
             if (sessionAttendance) {
               return [
@@ -419,7 +453,7 @@ export async function GET(
             return [
               d,
               {
-                present: !optedOut,
+                present: !optedOut && !trainingRequiresCheckIn(club.paymentWorkflow),
                 reasonCode: optedOut ? (byDate?.get(d) ?? null) : null,
               },
             ];

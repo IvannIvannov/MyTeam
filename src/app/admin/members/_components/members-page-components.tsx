@@ -1,5 +1,6 @@
 import { AttendanceFilterSelect } from "@/components/AttendanceFilterSelect";
 import { useEffect, useRef, useState } from "react";
+import { attendancePercentage } from "@/lib/attendanceEligibility";
 import { buildYearlyPaymentReport, formatRecordedPaymentAmounts } from "@/lib/yearlyPaymentReport";
 import { NotificationImage } from "@/components/NotificationImage";
 import { NotificationText } from "@/components/NotificationText";
@@ -430,16 +431,7 @@ function AttendanceDashboard({
   };
 
   const reportTitle = eventType === "match" ? "Присъствия на мачове" : "Присъствия на тренировки";
-  const playerPercentage = (player: AttendanceReportData["players"][number]) => {
-    const dates = data?.trainingDates.filter((date) => eventType !== "match" || Boolean(player.attendance[date])) ?? [];
-    const present = dates.filter((date) => player.attendance[date]?.present ?? true).length;
-    return dates.length ? Math.round(present / dates.length * 100) : 0;
-  };
-  const eventPercentage = (date: string) => {
-    const players = data?.players.filter((player) => eventType !== "match" || Boolean(player.attendance[date])) ?? [];
-    const present = players.filter((player) => player.attendance[date]?.present ?? true).length;
-    return players.length ? Math.round(present / players.length * 100) : 0;
-  };
+
 
   const printAttendance = () => {
     if (!data || typeof window === "undefined") return;
@@ -462,7 +454,7 @@ function AttendanceDashboard({
     `;
 
     const tbodyHtml = data.players.map((player) => {
-      const pct = playerPercentage(player);
+      const pct = attendancePercentage(data.trainingDates.map(d => player.attendance[d]));
 
       const cellsHtml = data.trainingDates.map((d) => {
         const cell = player.attendance[d];
@@ -476,7 +468,7 @@ function AttendanceDashboard({
         <tr>
           <td style="padding: 4px; border-bottom: 1px solid #eee; white-space: nowrap;">${escapeHtml(player.fullName)}</td>
           ${cellsHtml}
-          <td style="padding: 4px; border-bottom: 1px solid #eee; text-align: center; font-weight: bold;">${pct}%</td>
+          <td style="padding: 4px; border-bottom: 1px solid #eee; text-align: center; font-weight: bold;">${pct === null ? "–" : `${pct}%`}</td>
         </tr>
       `;
     }).join("");
@@ -484,8 +476,8 @@ function AttendanceDashboard({
     let tfootHtml = "";
     if (scopeType === "group") {
       const footerCellsHtml = data.trainingDates.map((d) => {
-        const pct = eventPercentage(d);
-        return `<td style="padding: 6px; text-align: center; font-weight: bold;">${pct}%</td>`;
+        const pct = attendancePercentage(data.players.map(p => p.attendance[d]));
+        return `<td style="padding: 6px; text-align: center; font-weight: bold;">${pct === null ? "–" : `${pct}%`}</td>`;
       }).join("");
 
       tfootHtml = `
@@ -688,7 +680,7 @@ function AttendanceDashboard({
                   </thead>
                   <tbody>
                     {data.players.map((player) => {
-                      const pct = playerPercentage(player);
+                      const pct = attendancePercentage(data.trainingDates.map(d => player.attendance[d]));
                       return (
                         <tr key={player.id}>
                           <td className="acd-td-name">{player.fullName}</td>
@@ -734,9 +726,9 @@ function AttendanceDashboard({
                             );
                           })}
                           <td
-                            className={`acd-td-pct ${pct >= 75 ? "acd-pct--good" : pct >= 50 ? "acd-pct--warn" : "acd-pct--low"}`}
+                            className={`acd-td-pct ${(pct ?? 0) >= 75 ? "acd-pct--good" : (pct ?? 0) >= 50 ? "acd-pct--warn" : "acd-pct--low"}`}
                           >
-                            {pct}%
+                            {pct === null ? "–" : `${pct}%`}
                           </td>
                         </tr>
                       );
@@ -747,13 +739,13 @@ function AttendanceDashboard({
                       <tr className="acd-summary-row">
                         <td className="acd-td-name acd-summary-label">Средно</td>
                         {data.trainingDates.map((d) => {
-                          const pct = eventPercentage(d);
+                          const pct = attendancePercentage(data.players.map(p => p.attendance[d]));
                           return (
                             <td
                               key={d}
-                              className={`acd-cell ${pct >= 75 ? "acd-pct--good" : pct >= 50 ? "acd-pct--warn" : "acd-pct--low"}`}
+                              className={`acd-cell ${(pct ?? 0) >= 75 ? "acd-pct--good" : (pct ?? 0) >= 50 ? "acd-pct--warn" : "acd-pct--low"}`}
                             >
-                              {pct}%
+                              {pct === null ? "–" : `${pct}%`}
                             </td>
                           );
                         })}

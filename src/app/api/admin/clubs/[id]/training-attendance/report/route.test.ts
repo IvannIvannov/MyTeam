@@ -91,7 +91,10 @@ describe("individual attendance report", () => {
     mocks.player.mockResolvedValue(null);
     const response = await report("playerId=player-1&coachGroupId=coach-1");
     expect(response.status).toBe(404);
-    expect(mocks.player.mock.calls[0][0].where).toMatchObject({ clubId: "club-1", coachGroups: { some: { id: "coach-1" } } });
+    expect(mocks.player.mock.calls[0][0].where).toMatchObject({ clubId: "club-1", OR: [
+      { coachGroups: { some: { id: "coach-1" } } },
+      { attendanceMemberships: { some: { scopeKey: "coach_group:coach-1" } } },
+    ] });
     expect(mocks.sessions).not.toHaveBeenCalled();
   });
 

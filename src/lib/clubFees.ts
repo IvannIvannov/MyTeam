@@ -87,7 +87,10 @@ export async function updateClubFees(clubId: string, input: unknown) {
           await tx.player.update({ where: { id: p.id }, data: {
             ...(Object.hasOwn(personalFees, p.id) ? { paymentAmount: p.paymentAmount } : {}),
             billingCoachGroupId: p.billingCoachGroupId,
-            ...(Object.hasOwn(assignments, p.id) ? { coachGroups: { set: p.coachGroupIds.map((id) => ({ id })) } } : {}),
+            ...(Object.hasOwn(assignments, p.id) ? { coachGroups: {
+              disconnect: original.coachGroups.filter((group) => !p.coachGroupIds.includes(group.id)).map((group) => ({ id: group.id })),
+              connect: p.coachGroupIds.filter((id) => !original.coachGroups.some((group) => group.id === id)).map((id) => ({ id })),
+            } } : {}),
           } });
         }
       }
