@@ -27,7 +27,7 @@
   const labels = ["Събития", "От", "До", "Вид", "Треньор", "Треньорска група"];
   const values = ["Тренировки", "2026-09-21", "2026-10-20", "Отбор", "Светослав Каламов", "Локомотив - 1"];
   const fields = labels.map((label, i) => `<div class="rd-field"><label class="rd-label">${label}</label>
-    <div class="rd-select-wrap${i === 1 || i === 2 ? "" : " acd-custom-select"}"><${i === 1 || i === 2 ? `input type="date" value="${values[i]}" class="rd-date-input"` : `button class="rd-select acd-select-trigger" type="button"`}>${i === 1 || i === 2 ? "" : `<span>${values[i]}</span></button>`}</div></div>`).join("");
+    <div class="rd-select-wrap${i === 1 || i === 2 ? "" : " acd-custom-select"}"><${i === 1 || i === 2 ? `input type="date" value="${values[i]}" class="rd-date-input"` : `button class="rd-select acd-select-trigger" type="button"`}>${i === 1 || i === 2 ? "" : `<span>${values[i]}</span><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m6 9 6 6 6-6" /></svg></button>`}</div></div>`).join("");
   const dates = Array.from({ length: 20 }, (_, i) => `<th class="acd-th-date"><span class="acd-date-label">${20 - i}\nОкт</span></th>`).join("");
   const rows = Array.from({ length: 25 }, (_, i) => `<tr><td class="acd-td-name">Състезател ${i + 1}</td>${"<td class='acd-cell acd-cell--present'>✓</td>".repeat(20)}<td class="acd-td-pct">100%</td></tr>`).join("");
   const results = [];
@@ -56,6 +56,13 @@
     const header = doc.querySelector("thead");
     const footer = doc.querySelector(".rd-footer");
     const errors = [];
+    for (const trigger of doc.querySelectorAll(".acd-select-trigger")) {
+      const buttonRect = trigger.getBoundingClientRect();
+      const arrowRect = trigger.querySelector("svg").getBoundingClientRect();
+      if (Math.abs((arrowRect.top + arrowRect.bottom - buttonRect.top - buttonRect.bottom) / 2) > 1) {
+        errors.push("dropdown arrow is not vertically centered inside its button");
+      }
+    }
     const initialFirstRect = first.getBoundingClientRect();
     const initialDialogRect = dialog.getBoundingClientRect();
     if (initialFirstRect.bottom > Math.min(initialDialogRect.bottom, height) - 16) {
