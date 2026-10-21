@@ -1,11 +1,11 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { syncFutureTrainingSessions } from "@/lib/trainingSessions";
+import { removeTrainingSessionsPreservingHistory, syncFutureTrainingSessions } from "@/lib/trainingSessions";
 vi.mock("@/lib/db", () => ({ prisma: {} }));
 const date = "2026-10-21";
 beforeEach(() => { vi.useFakeTimers(); vi.setSystemTime(new Date("2026-10-21T09:00:00Z")); });
 afterEach(() => vi.useRealTimers());
 function fixture(status = "scheduled", time: string | null = "18:00", removedFromSchedule = false, sessionDate = date) {
-  const row = { id: "session", trainingDate: new Date(`${sessionDate}T00:00:00Z`), trainingTime: time, status, removedFromSchedule };
+  const row = { id: "session", trainingDate: new Date(`${sessionDate}T00:00:00Z`), trainingTime: time, status, removedFromSchedule, rosterLockedAt: null as Date | null };
   const tx = {
     $queryRaw: vi.fn(),
     club: { findUniqueOrThrow: vi.fn().mockResolvedValue({ paymentWorkflow: "calendar_month" }) },
@@ -15,7 +15,7 @@ function fixture(status = "scheduled", time: string | null = "18:00", removedFro
     trainingOptOut: { findMany: vi.fn().mockResolvedValue([]), createMany: vi.fn() },
   };
   const sync = (trainingTime = "19:00") => syncFutureTrainingSessions({ tx, clubId: "club", scope: { type: "customGroup", id: "group" }, trainingDates: [sessionDate], trainingDateTimes: { [sessionDate]: trainingTime }, trainingDurationMinutes: 90, trainingFieldId: null, trainingFieldPieceIds: [], todayIso: sessionDate });
-  return { tx, sync };
+  return { tx, sync, row };
 }
 it("keeps an explicitly cancelled session cancelled during mixed schedule and roster edits", async () => {
   const { tx, sync } = fixture("cancelled");
@@ -68,4 +68,25 @@ it("compares winter session times in Sofia rather than UTC", async () => {
   const { tx, sync } = fixture("scheduled", "11:59", false, "2026-10-26");
   await sync();
   expect(tx.trainingSessionPlayer.deleteMany).not.toHaveBeenCalled();
+});
+it("keeps the attendance lock through repeated saves after moving a past session to a future time", async () => {
+  const { tx, sync, row } = fixture("scheduled", "08:00");
+  tx.trainingSession.upsert.mockImplementation(async (args) => { Object.assign(row, args.update); return { id: row.id }; });
+  await sync("19:00");
+  await sync("20:00");
+  expect(tx.trainingSessionPlayer.deleteMany).not.toHaveBeenCalled();
+  expect(tx.trainingSessionPlayer.createMany).not.toHaveBeenCalled();
+  expect(row.rosterLockedAt).toEqual(new Date("2026-10-21T09:00:00Z"));
+});
+it.each(["reasonCode", "reasonText"])("protects %s-only attendance during date removal", async (reason) => {
+  const { tx } = fixture();
+  await removeTrainingSessionsPreservingHistory(tx, { clubId: "club", scopeKey: "custom_group:group" });
+  const where = tx.trainingSession.deleteMany.mock.lastCall?.[0].where;
+  expect(where.players.none.OR).toContainEqual({ [reason]: { not: null } });
+});
+it("protects attendance from started sessions and locked sessions during date removal", async () => {
+  const { tx } = fixture();
+  await removeTrainingSessionsPreservingHistory(tx, { clubId: "club", scopeKey: "custom_group:group" });
+  const history = tx.trainingSession.deleteMany.mock.lastCall?.[0].where.players.none.OR;
+  expect(history).toContainEqual({ trainingSession: expect.objectContaining({ OR: expect.arrayContaining([{ rosterLockedAt: { not: null } }]) }) });
 });

@@ -39,7 +39,7 @@ beforeAll(async () => {
     CREATE TABLE training_sessions(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),club_id uuid,scope_key text,status text,training_date date,training_time text,removed_from_schedule boolean DEFAULT false);
     CREATE TABLE training_session_players(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),training_session_id uuid,player_id uuid,player_name text,team_group integer,present boolean DEFAULT true,attendance_recorded boolean DEFAULT false,credit_charged_at timestamptz,reason_code text,reason_text text,updated_at timestamptz,UNIQUE(training_session_id,player_id));
   `);
-  for (const migration of ["20261020130000_attendance_membership_history", "20261020133000_membership_sessions_without_time", "20261020140000_membership_check_in_compatibility", "20261020160000_membership_preserve_opt_outs"]) {
+  for (const migration of ["20261020130000_attendance_membership_history", "20261020133000_membership_sessions_without_time", "20261020140000_membership_check_in_compatibility", "20261020160000_membership_preserve_opt_outs", "20261021170000_attendance_roster_lock"]) {
     await db.exec(readFileSync(`prisma/migrations/${migration}/migration.sql`, "utf8"));
   }
 }, 30000);
@@ -170,4 +170,26 @@ it("retains a protected absence through leaving and rejoining the group", async 
   await edit([playerId,otherPlayerId]);
   expect((await db.query("SELECT * FROM training_session_players WHERE player_id=$1", [playerId])).rows).toEqual(before);
   expect((await db.query("SELECT * FROM attendance_memberships WHERE player_id=$1 AND left_at IS NULL", [playerId])).rows).toHaveLength(1);
+});
+it("keeps past attendance locked across time corrections, member removal, and rejoining", async () => {
+  await db.query("INSERT INTO club_custom_training_group_players VALUES ($1,$2)", [groupId,playerId]);
+  const morning = (await db.query<{ id: string }>("SELECT id FROM training_sessions WHERE training_time='00:00'")).rows[0];
+  await db.query("INSERT INTO training_session_players(training_session_id,player_id,player_name,present) VALUES ($1,$2,'Player',true)", [morning.id,playerId]);
+  await db.query("UPDATE training_sessions SET training_date=training_date+1,training_time='19:00' WHERE id=$1", [morning.id]);
+  const lock = (await db.query<{ roster_locked_at: Date | null }>("SELECT roster_locked_at FROM training_sessions WHERE id=$1", [morning.id])).rows;
+  expect(lock[0].roster_locked_at).not.toBeNull();
+  await db.query("UPDATE training_sessions SET training_time='20:00',roster_locked_at=NULL WHERE id=$1", [morning.id]);
+  expect((await db.query("SELECT roster_locked_at FROM training_sessions WHERE id=$1", [morning.id])).rows).toEqual(lock);
+  const roster = (await db.query("SELECT * FROM training_session_players WHERE training_session_id=$1", [morning.id])).rows;
+  await edit([otherPlayerId]);
+  await edit([playerId,otherPlayerId]);
+  expect((await db.query("SELECT * FROM training_session_players WHERE training_session_id=$1", [morning.id])).rows).toEqual(roster);
+});
+it("keeps ordinary future time edits unlocked and their memberships editable", async () => {
+  const future = (await db.query<{ id: string }>("SELECT id FROM training_sessions WHERE status='scheduled' AND training_time='17:00'")).rows[0];
+  await db.query("UPDATE training_sessions SET training_time='18:00' WHERE id=$1", [future.id]);
+  expect((await db.query("SELECT roster_locked_at FROM training_sessions WHERE id=$1", [future.id])).rows).toEqual([{ roster_locked_at: null }]);
+  await edit([playerId]);
+  await edit([otherPlayerId]);
+  expect((await db.query("SELECT player_id FROM training_session_players WHERE training_session_id=$1", [future.id])).rows).toEqual([{ player_id: otherPlayerId }]);
 });

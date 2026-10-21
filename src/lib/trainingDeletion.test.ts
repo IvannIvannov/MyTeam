@@ -40,8 +40,9 @@ beforeEach(() => {
 
 it("permanently deletes only the selected coach session and its registration event, preserving the other session", async () => {
   expect((await DELETE(request({ date, trainingSessionId: id }), params)).status).toBe(200);
-  expect(db.trainingSession.deleteMany).toHaveBeenCalledWith({ where: { id, clubId: group, scopeKey, players: { none: { OR: [{ attendanceRecorded: true }, { creditChargedAt: { not: null } }] } } } });
-  expect(db.trainingSession.updateMany).toHaveBeenCalledWith({ where: { id, clubId: group, scopeKey, players: { some: { OR: [{ attendanceRecorded: true }, { creditChargedAt: { not: null } }] } } }, data: { status: "cancelled", removedFromSchedule: true } });
+  const history = { OR: expect.arrayContaining([{ attendanceRecorded: true }, { creditChargedAt: { not: null } }, { reasonCode: { not: null } }, { reasonText: { not: null } }]) };
+  expect(db.trainingSession.deleteMany).toHaveBeenCalledWith({ where: { id, clubId: group, scopeKey, players: { none: history } } });
+  expect(db.trainingSession.updateMany).toHaveBeenCalledWith({ where: { id, clubId: group, scopeKey, players: { some: history } }, data: { status: "cancelled", removedFromSchedule: true } });
   expect(db.limitedTrainingEvent.deleteMany).toHaveBeenCalledWith({ where: { clubId: group, OR: [{ scopeKey: `${scopeKey}:session:${id}` }, { scopeKey, trainingDate: new Date(`${date}T00:00:00Z`) }] } });
   expect(db.coachGroup.update).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ trainingDates: [date], trainingDateTimes: { [date]: "18:00" }, trainingRecurrences: [expect.objectContaining({ excludedDates: [date] })] }) }));
   expect(db.trainingSession.delete).not.toHaveBeenCalled();
@@ -93,7 +94,10 @@ it("deletes a legacy date from its schedule along with scoped notes, registratio
   db.clubCustomTrainingGroup.findFirst.mockResolvedValue({ id, trainingDates: [date, "2026-10-13"], trainingWeekdays: [], trainingDateTimes: { [date]: "09:00", "2026-10-13": "18:00" }, trainingFieldSelections: {} });
   expect((await DELETE(request({ date, customTrainingGroupId: id }), params)).status).toBe(200);
   expect(db.clubCustomTrainingGroup.update).toHaveBeenCalledWith({ where: { id }, data: { trainingDates: ["2026-10-13"], trainingWeekdays: [], trainingDateTimes: { "2026-10-13": "18:00" }, trainingFieldSelections: {} } });
-  expect(db.trainingSession.deleteMany).toHaveBeenCalledWith({ where: { clubId: group, scopeKey: `custom_group:${id}`, trainingDate: new Date(`${date}T00:00:00Z`), players: { none: { OR: [{ attendanceRecorded: true }, { creditChargedAt: { not: null } }] } } } });
+  expect(db.trainingSession.deleteMany).toHaveBeenCalledWith({ where: {
+    clubId: group, scopeKey: `custom_group:${id}`, trainingDate: new Date(`${date}T00:00:00Z`),
+    players: { none: { OR: expect.arrayContaining([{ attendanceRecorded: true }, { creditChargedAt: { not: null } }, { reasonCode: { not: null } }, { reasonText: { not: null } }]) } },
+  } });
 });
 it("cleans up legacy absence reasons while preserving decisions shared with another training", async () => {
   db.club.findUnique.mockResolvedValue({ id: group, trainingGroupMode: "custom_group" });
