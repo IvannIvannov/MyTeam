@@ -1,4 +1,5 @@
 "use client";
+import { getMatchCalendarDates } from "@/lib/matchScheduleWindow";
 import MatchExtraFields from "@/components/MatchExtraFields";
 import { matchCategoryLabel } from "@/lib/matchCategory";
 import { MATCH_EVENT_TYPES, matchEventTypeLabel, type MatchEventType } from "@/lib/matchEventType";
@@ -962,7 +963,7 @@ function AdminMembersPageContent() {
   const schedulerCalendarDates = getNextTrainingCalendarDates();
   const schedulerCalendarDateSet = new Set(schedulerCalendarDates);
   const schedulerCalendarMonths = buildCalendarMonths(schedulerCalendarDates);
-  const matchCalendarDates = getNextTrainingCalendarDates(30);
+  const matchCalendarDates = getMatchCalendarDates();
   const matchCalendarDateSet = new Set(matchCalendarDates);
   const matchCalendarMonths = buildCalendarMonths(matchCalendarDates);
   const trimCalendarMonthCells = (months: ReturnType<typeof buildCalendarMonths>, fromDate: string) =>

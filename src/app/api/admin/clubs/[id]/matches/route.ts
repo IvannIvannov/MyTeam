@@ -4,15 +4,13 @@ import { matchPlayerWhere } from "@/lib/matchAttendanceRules";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { verifyAdminToken } from "@/lib/adminAuth";
-import { isIsoDate, isValidTrainingTime, getTodayIsoDateInTimeZone } from "@/lib/training";
+import { isIsoDate, isValidTrainingTime } from "@/lib/training";
+import { getMatchScheduleRange } from "@/lib/matchScheduleWindow";
 import { getMatchOverlapWarnings } from "@/lib/matchConflicts";
 import { sendMatchScheduleNotifications } from "@/lib/push/matchScheduleNotifications";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-
-const FIXED_TIME_ZONE = "Europe/Sofia";
-const MATCH_WINDOW_DAYS = 60;
 
 async function verifySession(request: NextRequest) {
   const token = request.cookies.get("admin_session")?.value;
@@ -40,10 +38,7 @@ export async function GET(
 
   const { id } = await params;
 
-  const todayIso = getTodayIsoDateInTimeZone(FIXED_TIME_ZONE);
-  const endDate = new Date(`${todayIso}T00:00:00.000Z`);
-  endDate.setUTCDate(endDate.getUTCDate() + MATCH_WINDOW_DAYS - 1);
-  const endIso = endDate.toISOString().slice(0, 10);
+  const { from: todayIso, to: endIso } = getMatchScheduleRange();
 
   const matches = await prisma.clubMatch.findMany({
     where: {
