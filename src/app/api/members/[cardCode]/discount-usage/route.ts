@@ -21,7 +21,7 @@ export async function POST(
     if (
       typeof partner !== "string" ||
       typeof action !== "string" ||
-      !VALID_PARTNERS.has(partner) ||
+      !partner.trim() ||
       !VALID_ACTIONS.has(action)
     ) {
       return NextResponse.json({ success: false }, { status: 400 });
@@ -34,6 +34,15 @@ export async function POST(
 
     if (!card) {
       return NextResponse.json({ success: false }, { status: 404 });
+    }
+
+    const discount = await prisma.partnerDiscount.findFirst({
+      where: { name: partner },
+      select: { name: true },
+    });
+    // Keep accepting the identifiers used by older member pages.
+    if (!discount && !VALID_PARTNERS.has(partner)) {
+      return NextResponse.json({ success: false }, { status: 400 });
     }
 
     const dateString = new Date()
