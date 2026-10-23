@@ -38,6 +38,7 @@ interface DailyRow {
 }
 
 interface StatsResponse {
+  partners: { name: string; logoUrl: string | null }[];
   totals: Record<string, { view: number; copy: number; link_click: number }>;
   daily: DailyRow[];
 }
@@ -109,6 +110,8 @@ export default function AdminDiscountStatsClient() {
 
   useEffect(() => {
     const es = new EventSource("/api/admin/discount-stats/events");
+    // Events are process-local; refresh also when tracking hits another server.
+    const refreshTimer = window.setInterval(() => void fetchStatsRef.current(), 30_000);
 
     es.onmessage = (e: MessageEvent) => {
       const data = JSON.parse(e.data as string) as { type: string };
@@ -118,11 +121,14 @@ export default function AdminDiscountStatsClient() {
     };
 
     return () => {
+      window.clearInterval(refreshTimer);
       es.close();
     };
   }, []); // Opens once on mount, never closed by filter changes
 
-  const PARTNERS = ["SPORT_DEPOT", "IDB", "NIKO", "DALIDA"];
+  const PARTNERS = Object.keys(stats?.totals ?? {});
+  const partnerLabel = (partner: string) => PARTNER_LABELS[partner] ?? partner;
+  const partnerLogo = (partner: string) => stats?.partners.find((p) => p.name === partner)?.logoUrl ?? PARTNER_LOGOS[partner];
 
   return (
     <div className="ds-page">
@@ -197,7 +203,7 @@ export default function AdminDiscountStatsClient() {
                   borderRadius: "16px",
                   position: "relative",
                   overflow: "hidden",
-                  backgroundImage: `linear-gradient(to bottom, rgba(13, 13, 13, 0.68), rgba(13, 13, 13, 0.82)), url(${PARTNER_LOGOS[partner]})`,
+                  backgroundImage: `linear-gradient(to bottom, rgba(13, 13, 13, 0.68), rgba(13, 13, 13, 0.82)), url(${partnerLogo(partner) ?? ""})`,
                   backgroundSize: "contain",
                   backgroundPosition: "center",
                   backgroundRepeat: "no-repeat",
@@ -216,7 +222,7 @@ export default function AdminDiscountStatsClient() {
                     letterSpacing: "0.5px",
                     textShadow: "0 2px 4px rgba(0,0,0,0.5)"
                   }}>
-                    {PARTNER_LABELS[partner]}
+                    {partnerLabel(partner)}
                   </div>
 
                   <div className="ds-card-stats" style={{
@@ -262,7 +268,7 @@ export default function AdminDiscountStatsClient() {
         {/* Daily table */}
         <div className="ds-table-wrap" style={{ marginTop: "10px" }}>
           <div className="ds-table-title" style={{ textAlign: "center", color: "rgba(255, 255, 255, 0.8)", borderBottom: "1px solid rgba(255, 255, 255, 0.1)" }}>
-            Дневна разбивка {selectedPartner && <span style={{ color: "#32cd32", marginLeft: "4px" }}>({PARTNER_LABELS[selectedPartner]})</span>}
+            Дневна разбивка {selectedPartner && <span style={{ color: "#32cd32", marginLeft: "4px" }}>({partnerLabel(selectedPartner)})</span>}
           </div>
           {loading ? (
             <div className="ds-loading">Зареждане...</div>

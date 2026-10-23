@@ -37,12 +37,16 @@ export async function GET(request: NextRequest) {
     _count: { id: true },
   });
 
-  const PARTNERS = ["SPORT_DEPOT", "IDB", "NIKO", "DALIDA"];
-  const totals: Record<string, { view: number; copy: number; link_click: number }> = {};
-  for (const p of PARTNERS) {
+  const partners = await prisma.partnerDiscount.findMany({
+    select: { name: true, logoUrl: true },
+    orderBy: { createdAt: "asc" },
+  });
+  const totals: Record<string, { view: number; copy: number; link_click: number }> = Object.create(null);
+  for (const p of partners.map((partner) => partner.name)) {
     totals[p] = { view: 0, copy: 0, link_click: 0 };
   }
   for (const row of grouped) {
+    if (!totals[row.partner]) totals[row.partner] = { view: 0, copy: 0, link_click: 0 };
     if (totals[row.partner]) {
       if (row.action === "view") totals[row.partner].view += row._count.id;
       else if (row.action === "copy") totals[row.partner].copy += row._count.id;
@@ -63,5 +67,5 @@ export async function GET(request: NextRequest) {
     action: r.action,
   }));
 
-  return NextResponse.json({ totals, daily });
+  return NextResponse.json({ totals, daily, partners });
 }

@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 import MemberMatchExtraDetails from "@/components/MemberMatchExtraDetails";
 import { matchEventTypeLabel } from "@/lib/matchEventType";
 import MemberMatchDetailsModal, { type MemberMatchDetails as MemberMatch } from "@/components/MemberMatchDetailsModal";
@@ -867,6 +867,7 @@ export default function MemberCardPage({
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ partner, action }),
+      keepalive: true,
     }).catch(() => { });
   };
 
