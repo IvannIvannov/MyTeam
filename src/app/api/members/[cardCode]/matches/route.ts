@@ -1,12 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { getTodayIsoDateInTimeZone } from "@/lib/training";
+import { getMatchScheduleRange } from "@/lib/matchScheduleWindow";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-
-const FIXED_TIME_ZONE = "Europe/Sofia";
-const MATCH_WINDOW_DAYS = 60;
 
 export async function GET(
   _request: NextRequest,
@@ -42,10 +39,7 @@ export async function GET(
   });
   const playerCustomGroupIds = new Set(customGroupMemberships.map((m) => m.groupId));
 
-  const todayIso = getTodayIsoDateInTimeZone(FIXED_TIME_ZONE);
-  const endDate = new Date(`${todayIso}T00:00:00.000Z`);
-  endDate.setUTCDate(endDate.getUTCDate() + MATCH_WINDOW_DAYS - 1);
-  const endIso = endDate.toISOString().slice(0, 10);
+  const { from: todayIso, to: endIso } = getMatchScheduleRange();
 
   const allMatches = await prisma.clubMatch.findMany({
     where: { clubId, matchDate: { gte: todayIso, lte: endIso } },
