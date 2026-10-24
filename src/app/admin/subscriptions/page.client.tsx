@@ -11,6 +11,7 @@ import styles from "./subscriptions.module.css";
 import { subscriptionAuditDescription, subscriptionAuditLabels } from "@/lib/clubSubscriptionAudit";
 
 const STATUS: Record<SubscriptionStatus, string> = {
+  contract: "С договор",
   not_activated: "Неактивиран", trial: "Пробен период", trial_expired: "Изтекъл пробен период",
   active: "Платен", unpaid: "Неплатени месеци", scheduled: "Предстоящ",
 };
@@ -93,7 +94,7 @@ export default function SubscriptionsPageClient() {
       <div className={styles.list} aria-busy={busy || loading}>
         {visible.map((club) => <article key={club.id} className={styles.card}>
           <div className={styles.cardHeader}><h2>{club.name}</h2><span className={styles.badge} data-status={club.summary.status}>{STATUS[club.summary.status]}</span></div>
-          {club.subscription?.mode === "trial" ? <p>Безплатен пробен период: <strong>{club.subscription.trialEndDate ? `до ${dateLabel(club.subscription.trialEndDate)} включително` : "без крайна дата"}</strong></p> : club.subscription ? <>
+          {club.subscription?.mode === "contract" ? <p>Таксуването се управлява по договор извън приложението. Известията за абонамент са изключени.</p> : club.subscription?.mode === "trial" ? <p>Безплатен пробен период: <strong>{club.subscription.trialEndDate ? `до ${dateLabel(club.subscription.trialEndDate)} включително` : "без крайна дата"}</strong></p> : club.subscription ? <>
             <dl className={styles.metrics}>
               <div><dt>Месечна такса</dt><dd>{club.summary.currentFee} EUR</dd></div>
               <div><dt>Начало</dt><dd>{monthLabel(club.subscription.firstBillingMonth!)}</dd></div>
@@ -104,6 +105,8 @@ export default function SubscriptionsPageClient() {
             {club.summary.laterPaidMonths.length > 0 && <p>Отделно платени месеци след пропуск: {club.summary.laterPaidMonths.map(monthLabel).join(", ")}</p>}
           </> : <p>Активирайте таксуването от страницата „Такси“ на клуба, за да настроите абонамент.</p>}
           <div className={styles.actions}>
+            {club.subscription && club.subscription.mode !== "contract" && <button type="button" disabled={busy || loading} onClick={() => { if (window.confirm("Задаване на статус „С договор“? Таксуването ще се управлява извън приложението и известията за абонамент ще бъдат изключени.")) void save(club, { action: "contract" }).catch(() => {}); }}>Задай „С договор“</button>}
+            {club.subscription?.mode === "contract" && <button type="button" disabled={busy || loading} onClick={() => setEditor({ clubId: club.id, action: "history" })}>История</button>}
             {club.subscription?.mode === "trial" && <>
               <button type="button" disabled={busy || loading} onClick={() => { setError(""); setEditor({ clubId: club.id, action: "trial" }); }}>Редактирай пробния период</button>
               <button type="button" disabled={busy || loading} onClick={() => { setError(""); setEditor({ clubId: club.id, action: "start_paid" }); }}>Задай платен абонамент</button>
@@ -238,7 +241,7 @@ function PaymentHistory({ club, busy, save }: { club: ClubSubscriptionView; busy
           <ul>{[...payment.months].sort((a, b) => a.month.localeCompare(b.month)).map((month) => <li key={month.month}><span>{monthLabel(month.month)}</span><strong>{month.amount} EUR</strong></li>)}</ul>
         </details>
         {payment.note && <div className={styles.paymentNote}><span className={styles.historyLabel}>Бележка</span><p>{payment.note}</p></div>}
-        {!payment.voidedAt && <div className={styles.paymentFooter}><button className={styles.voidButton} type="button" disabled={busy} onClick={() => void voidPayment(payment.id)}>Анулирай плащането</button></div>}
+        {subscription.mode !== "contract" && !payment.voidedAt && <div className={styles.paymentFooter}><button className={styles.voidButton} type="button" disabled={busy} onClick={() => void voidPayment(payment.id)}>Анулирай плащането</button></div>}
       </article>)}
     </div>
     <div className={styles.historyHeading}><h4>Административна история</h4><span>Кой и кога</span></div>

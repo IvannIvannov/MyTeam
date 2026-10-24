@@ -17,5 +17,5 @@ export async function getClubSubscriptionSummary(clubId: string): Promise<ClubSu
       months: p.months.map((m) => ({ ...m, amount: m.amount.toFixed(2) })) })) };
   return { mode: stored.mode, trialEndDate: stored.trialEndDate, firstBillingMonth: stored.firstBillingMonth,
     summary: summarizeSubscription(club.billingStatus, snapshot),
-    paidMonths: snapshot.payments.flatMap((p) => p.months).sort((a, b) => a.month.localeCompare(b.month)) };
+    paidMonths: stored.mode === "contract" ? [] : snapshot.payments.flatMap((p) => p.months).sort((a, b) => a.month.localeCompare(b.month)) };
 }

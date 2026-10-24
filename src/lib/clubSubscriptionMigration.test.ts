@@ -13,6 +13,7 @@ it("backfills only activated clubs, preserves player dues, and enforces live mon
       INSERT INTO players VALUES ('${active}', '${active}', 70);`);
     await db.exec(readFileSync("prisma/migrations/20261024120000_club_subscriptions/migration.sql", "utf8"));
     await db.exec(readFileSync("prisma/migrations/20261024160000_club_subscription_reminders/migration.sql", "utf8"));
+    await db.exec(readFileSync("prisma/migrations/20261024180000_club_subscription_contract/migration.sql", "utf8"));
     await db.exec(`INSERT INTO club_subscription_reminders (club_id, key) VALUES ('${active}', 'trial:2026-10-31:7')`);
     await expect(db.exec(`INSERT INTO club_subscription_reminders (club_id, key) VALUES ('${active}', 'trial:2026-10-31:7')`)).rejects.toThrow(/duplicate key/);
     await expect(db.exec(`INSERT INTO club_subscription_reminders (club_id, key) VALUES ('${demo}', 'trial:2026-10-31:7')`)).rejects.toThrow(/foreign key/);
@@ -29,5 +30,9 @@ it("backfills only activated clubs, preserves player dues, and enforces live mon
     expect((await db.query("SELECT amount::text AS amount FROM club_subscription_payment_months WHERE voided_at IS NULL")).rows).toEqual([{ amount: "25.00" }]);
     await expect(db.exec(`INSERT INTO club_subscription_fees (id, club_id, effective_month, amount) VALUES (gen_random_uuid(), '${active}', '2026-10', 0)`)).rejects.toThrow(/check constraint/);
     await expect(db.exec("UPDATE club_subscriptions SET mode='trial'")).rejects.toThrow(/check constraint/);
+    await db.exec("UPDATE club_subscriptions SET mode='contract', first_billing_month=NULL, trial_end_date=NULL");
+    expect((await db.query("SELECT mode FROM club_subscriptions")).rows).toEqual([{ mode: "contract" }]);
+    await expect(db.exec("UPDATE club_subscriptions SET first_billing_month='2026-10'")).rejects.toThrow(/check constraint/);
+    expect((await db.query("SELECT COUNT(*)::int AS count FROM club_subscription_payments")).rows).toEqual([{ count: 1 }]);
   } finally { await db.close(); }
 }, 30000);

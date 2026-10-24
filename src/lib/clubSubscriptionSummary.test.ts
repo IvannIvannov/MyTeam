@@ -43,3 +43,11 @@ it("shows unlimited trials and missing clubs without exposing internal data", as
   mocks.findUnique.mockResolvedValue(null);
   expect(await getClubSubscriptionSummary(id)).toBeNull();
 });
+
+it("shows contract status without presenting historical payments as current billing", async () => {
+  const stored = await mocks.findUnique();
+  stored.platformSubscription.mode = "contract";
+  stored.platformSubscription.firstBillingMonth = null;
+  mocks.findUnique.mockResolvedValue(stored);
+  expect(await getClubSubscriptionSummary(id)).toMatchObject({ mode: "contract", paidMonths: [], summary: { status: "contract", outstanding: [], currentFee: null } });
+});

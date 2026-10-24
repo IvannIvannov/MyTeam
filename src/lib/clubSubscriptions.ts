@@ -24,6 +24,7 @@ export async function initializeClubSubscription(tx: Transaction, clubId: string
     ...(setup.mode === "paid" ? { fees: { create: { effectiveMonth: setup.firstBillingMonth, amount: setup.amount } } } : {}),
     changes: { create: { actorId, action: "setup", details: setup } },
   } });
+  if (setup.mode === "contract") return null;
   const notice = setup.mode === "trial"
     ? subscriptionMessage(clubId, "Пробен период за MyTeam", `Активиран е безплатен пробен период ${trialDescription(setup.trialEndDate)}. Промяната не начислява такси автоматично.`)
     : subscriptionMessage(clubId, "Платен абонамент за MyTeam", `Активиран е платен абонамент. Месечна такса: ${setup.amount} EUR. Първи месец за плащане: ${setup.firstBillingMonth}.`);
@@ -90,6 +91,8 @@ export async function changeClubSubscription(clubId: string, body: Record<string
     const subscription = await tx.clubSubscription.findUnique({ where: { clubId }, include: subscriptionInclude });
     if (!subscription) throw new SubscriptionError("Абонаментът не е настроен.", 409);
 
+    if (subscription.mode === "contract" && body.action !== "contract") throw new SubscriptionError("Таксуването на клуб с договор се управлява извън приложението.", 409);
+
     const payment = body.action === "payment" ? parsePayment(body) : null;
     if (payment) {
       const previous = await tx.clubSubscriptionPayment.findUnique({ where: { id: payment.paymentId }, include: { months: { orderBy: { month: "asc" } } } });
@@ -107,6 +110,12 @@ export async function changeClubSubscription(clubId: string, body: Record<string
     let notice: PushNotificationPayload | null = null;
     let details: Prisma.InputJsonValue;
     switch (body.action) {
+      case "contract": {
+        if (subscription.mode === "contract") return null;
+        details = { previousMode: subscription.mode, previousTrialEndDate: subscription.trialEndDate, previousFirstBillingMonth: subscription.firstBillingMonth };
+        await tx.clubSubscription.update({ where: { clubId }, data: { mode: "contract", trialEndDate: null, firstBillingMonth: null } });
+        break;
+      }
       case "trial": {
         if (subscription.mode !== "trial") throw new SubscriptionError("Платен абонамент не може да се върне към пробен период.");
         const setup = parseSubscriptionSetup({ mode: "trial", trialEndDate: body.trialEndDate });

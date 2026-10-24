@@ -59,3 +59,8 @@ describe("subscription setup validation", () => {
     expect(amountCents("0.29") + amountCents("0.01")).toBe(30);
   });
 });
+
+it("contract subscriptions never accrue in-app fees even with historical billing records", () => {
+  expect(parseSubscriptionSetup({ mode: "contract" })).toEqual({ mode: "contract" });
+  expect(summarizeSubscription("active", { ...paid(), mode: "contract" }, "2027-06-01")).toMatchObject({ status: "contract", currentFee: null, outstanding: [], outstandingTotal: "0.00", paidThrough: null });
+});

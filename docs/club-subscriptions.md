@@ -52,3 +52,9 @@ The `club_subscription_reminders` table deduplicates by club and period/stage. T
 The main members page (without `coachGroupId`) shows a club-facing subscription summary: trial end date, or monthly fee, paid month snapshots, outstanding months/amount and uninterrupted coverage. It refreshes every minute while visible and on focus/tab return. Its authenticated API at `/api/admin/clubs/{id}/subscription` follows the existing shared club coach session access model and omits payment notes, audit details, and account IDs. It does not change player dues.
 
 The platform admin's **История и такси** displays audit records for initial setup, trial changes, paid conversion, fee revisions, payments and voids, including before/after values, account ID, and Europe/Sofia timestamp. Current password-only accounts have no personal name field; shared credentials identify an account rather than a person. Audit history is available for trials as well as paid subscriptions.
+
+### Clubs with contracts
+
+Select **С договор** during billing activation, or use **Задай „С договор“** on an existing subscription. Contract billing is managed outside the app. The club sees **С договор**, with no subscription amounts, unpaid months, payment controls, or subscription notifications/reminders. Existing financial records remain in the administrator history. Subscription billing mutations are blocked by the API for contract clubs. Player dues and unrelated notifications are unaffected. Changing to a contract is audited and sends no club message. Returning a contract club to in-app billing is not offered.
+
+Requires migration `20261024180000_club_subscription_contract` before using the new status.

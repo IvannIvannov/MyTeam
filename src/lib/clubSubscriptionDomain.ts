@@ -40,12 +40,13 @@ export function amountCents(value: unknown, maxWholeDigits = 8): number {
 }
 export function money(cents: number): string { return (cents / 100).toFixed(2); }
 
-export type SubscriptionSetup = { mode: "trial"; trialEndDate: string | null } |
+export type SubscriptionSetup = { mode: "contract" } | { mode: "trial"; trialEndDate: string | null } |
   { mode: "paid"; firstBillingMonth: string; amount: string };
 
 export function parseSubscriptionSetup(raw: unknown): SubscriptionSetup {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new SubscriptionError("Изберете пробен период или платен абонамент.");
   const input = raw as Record<string, unknown>;
+  if (input.mode === "contract") return { mode: "contract" };
   if (input.mode === "trial") {
     if (input.trialEndDate !== null && !isDate(input.trialEndDate)) throw new SubscriptionError("Изберете крайна дата или без крайна дата.");
     return { mode: "trial", trialEndDate: input.trialEndDate };
@@ -66,7 +67,7 @@ export type SubscriptionSnapshot = {
   mode: string; trialEndDate: string | null; firstBillingMonth: string | null;
   fees: Fee[]; payments: PaymentView[];
 };
-export type SubscriptionStatus = "not_activated" | "trial" | "trial_expired" | "active" | "unpaid" | "scheduled";
+export type SubscriptionStatus = "contract" | "not_activated" | "trial" | "trial_expired" | "active" | "unpaid" | "scheduled";
 export type SubscriptionSummary = {
   status: SubscriptionStatus; currentFee: string | null; paidThrough: string | null;
   outstanding: { month: string; amount: string }[]; outstandingTotal: string;
@@ -109,6 +110,7 @@ export function feeForMonth(fees: Fee[], month: string): string | null {
 export function summarizeSubscription(billingStatus: string, subscription: SubscriptionSnapshot | null, today = localToday()): SubscriptionSummary {
   const base: SubscriptionSummary = { status: "not_activated", currentFee: null, paidThrough: null, outstanding: [], outstandingTotal: "0.00", laterPaidMonths: [] };
   if (billingStatus !== "active" || !subscription) return base;
+  if (subscription.mode === "contract") return { ...base, status: "contract" };
   if (subscription.mode === "trial") return { ...base, status: subscription.trialEndDate && subscription.trialEndDate < today ? "trial_expired" : "trial" };
   const first = subscription.firstBillingMonth!;
   const current = today.slice(0, 7);

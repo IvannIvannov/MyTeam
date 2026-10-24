@@ -1,5 +1,6 @@
 import type { SubscriptionAuditEntry } from "./clubSubscriptionDomain";
 export const subscriptionAuditLabels: Record<string, string> = {
+  contract: "Сключен договор — таксуване извън приложението",
   setup: "Настроен абонамент", initial_trial: "Начален пробен период", trial: "Променен пробен период",
   start_paid: "Активиран платен абонамент", fee: "Променена месечна такса", payment: "Записано плащане", void: "Анулирано плащане",
 };
@@ -9,10 +10,11 @@ export function subscriptionAuditDescription(entry: SubscriptionAuditEntry): str
   const trial = (value: unknown) => typeof value === "string" ? `до ${value.split("-").reverse().join(".")}` : "без крайна дата";
   const months = Array.isArray(d.months) ? d.months.filter((m): m is string => typeof m === "string").join(", ") : "—";
   switch (entry.action) {
+    case "contract": return `Предишен статус: ${d.previousMode === "paid" ? "Платен абонамент" : "Пробен период"} → С договор`;
     case "trial": return `${trial(d.before)} → ${trial(d.after)}`;
     case "fee": return `${text("oldAmount")} → ${text("newAmount")} EUR / месец · В сила от ${text("effectiveMonth")}`;
     case "start_paid": return `${text("amount")} EUR / месец · Първи месец: ${text("firstBillingMonth")}`;
-    case "setup": return d.mode === "paid" ? `${text("amount")} EUR / месец · От ${text("firstBillingMonth")}` : `Пробен период ${trial(d.trialEndDate)}`;
+    case "setup": return d.mode === "contract" ? "С договор · Таксуване извън приложението" : d.mode === "paid" ? `${text("amount")} EUR / месец · От ${text("firstBillingMonth")}` : `Пробен период ${trial(d.trialEndDate)}`;
     case "initial_trial": return "Безплатен пробен период без крайна дата (миграция)";
     case "payment": return `${text("total")} EUR · Месеци: ${months} · Дата на плащане: ${text("paidOn")}`;
     case "void": return `${text("total")} EUR · Отново неплатени месеци: ${months}`;

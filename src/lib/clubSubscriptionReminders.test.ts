@@ -27,3 +27,7 @@ describe("subscription reminder policy", () => {
     expect(subscriptionReminders(subscription, "2027-02-01").map((r) => r.key)).toEqual(["overdue:2026-12", "overdue:2027-01"]);
   });
 });
+
+it("never reminds contract clubs even with historical trial dates and unpaid fees", () => {
+  expect(subscriptionReminders({ ...trial("2026-10-24"), mode: "contract", firstBillingMonth: "2026-01", fees: [{ effectiveMonth: "2026-01", amount: "10.00" }] }, "2026-10-24")).toEqual([]);
+});

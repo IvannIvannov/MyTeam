@@ -287,7 +287,7 @@ export default function ClubBillingPage() {
           {!isActive && (
             <section className={styles.section}>
               <h2 className={styles.label}>Абонамент на клуба за MyTeam</h2>
-              <p className={styles.hint}>Изберете пробен период или платен абонамент. Таксите на състезателите се управляват отделно.</p>
+              <p className={styles.hint}>Изберете пробен период, платен абонамент или „С договор“. Таксите на състезателите се управляват отделно.</p>
               <SubscriptionSetupFields value={subscriptionDraft} onChange={setSubscriptionDraft} disabled={activating} />
             </section>
           )}

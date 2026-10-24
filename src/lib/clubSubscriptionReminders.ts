@@ -4,6 +4,7 @@ export type SubscriptionReminder = { key: string; title: string; body: string };
 
 /** Catch up within each trial window; a bill is overdue after its calendar month ends. */
 export function subscriptionReminders(subscription: SubscriptionSnapshot, today = localToday()): SubscriptionReminder[] {
+  if (subscription.mode === "contract") return [];
   if (subscription.mode === "trial") {
     const end = subscription.trialEndDate;
     if (!end) return [];

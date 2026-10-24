@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Prisma } from "@prisma/client";
 import { NextRequest } from "next/server";
-import { changeClubSubscription } from "./clubSubscriptions";
+import { changeClubSubscription, initializeClubSubscription } from "./clubSubscriptions";
 import { summarizeSubscription } from "./clubSubscriptionDomain";
 import { GET } from "@/app/api/admin/subscriptions/route";
 import { POST } from "@/app/api/admin/subscriptions/[clubId]/route";
@@ -350,4 +350,29 @@ describe("subscription messages in the club notification inbox", () => {
       clubId, type: "myteam_message", coachGroupId: null, playerId: null, body: expect.stringContaining("25.00 EUR"),
     }) });
   });
+});
+
+it("switches to contract silently, preserves historical fees, and audits the change", async () => {
+  await change({ action: "contract", expectedVersion: 1 });
+  expect(state.mode).toBe("contract");
+  expect(state.fees).toHaveLength(1);
+  expect(mocks.clubSubscription.update).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ changes: { create: expect.objectContaining({ actorId: "admin", action: "contract", details: expect.objectContaining({ previousMode: "paid" }) }) } }) }));
+  expect(mocks.adminNotification.create).not.toHaveBeenCalled();
+  expect(mocks.events).not.toHaveBeenCalled();
+  expect(mocks.push).not.toHaveBeenCalled();
+});
+it.each(["payment", "void", "fee", "trial", "start_paid"])("blocks %s for contract clubs", async (action) => {
+  state.mode = "contract";
+  await expect(change({ action, expectedVersion: 1 })).rejects.toThrow("извън приложението");
+  expect(mocks.clubSubscription.update).not.toHaveBeenCalled();
+  expect(mocks.adminNotification.create).not.toHaveBeenCalled();
+});
+
+it("initializes contract subscriptions with no fee, message, or push", async () => {
+  const notice = await initializeClubSubscription(mocks as never, clubId, { mode: "contract" }, "admin");
+  expect(notice).toBeNull();
+  expect(mocks.clubSubscription.create).toHaveBeenCalledWith({ data: expect.objectContaining({ mode: "contract", trialEndDate: null, firstBillingMonth: null }) });
+  expect(mocks.clubSubscription.create.mock.calls[0][0].data).not.toHaveProperty("fees");
+  expect(mocks.adminNotification.create).not.toHaveBeenCalled();
+  expect(mocks.push).not.toHaveBeenCalled();
 });
