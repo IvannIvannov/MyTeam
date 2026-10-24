@@ -31,6 +31,13 @@ describe("long message delivery", () => {
     expect(payload.body).toBe("А".repeat(10000));
   });
 
+  it("targets only active club-level devices for a subscription fee notification", async () => {
+    const payload = { title: "Промяна на абонамента", body: "10.00 EUR → 15.00 EUR", url: "/admin/members?clubId=club" };
+    await sendPushToClubAdmins("club", payload, null);
+    expect(mocks.subscriptions.mock.calls[0][0].where).toEqual({ clubId: "club", isActive: true, coachGroupId: null });
+    expect(JSON.parse(mocks.send.mock.calls[0][1]).url).toBe("/admin/members?clubId=club");
+  });
+
   it.each([sendPushToClubAdmins, sendPushToAllClubAdminScopes])("limits admin pushes while preserving the caller's payload", async send => {
     const payload = { title: "Message", body: "😀".repeat(10000), url: "/admin/members?clubId=club" };
     expect((await send("club", payload)).sent).toBe(1);

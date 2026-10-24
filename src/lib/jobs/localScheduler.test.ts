@@ -1,0 +1,24 @@
+import { afterEach, expect, it, vi } from "vitest";
+const jobs = vi.hoisted(() => ({ membership: vi.fn(), overdue: vi.fn(), subscriptions: vi.fn() }));
+vi.mock("./monthlyMembershipPaymentReminder", () => ({ runMonthlyMembershipPaymentReminder: jobs.membership }));
+vi.mock("./monthlyOverduePaymentReminder", () => ({ runMonthlyOverduePaymentReminder: jobs.overdue }));
+vi.mock("./clubSubscriptionReminders", () => ({ runClubSubscriptionReminders: jobs.subscriptions }));
+afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks(); });
+it("starts once, runs subscriptions on startup/hourly, and preserves the player jobs on failure", async () => {
+  vi.resetModules(); vi.useFakeTimers();
+  vi.spyOn(console, "log").mockImplementation(() => {});
+  vi.spyOn(console, "error").mockImplementation(() => {});
+  jobs.subscriptions.mockRejectedValue(new Error("database unavailable"));
+  jobs.membership.mockResolvedValue({ skipped: true }); jobs.overdue.mockResolvedValue({ skipped: true });
+  const { startLocalSchedulers } = await import("./localScheduler");
+  await startLocalSchedulers(); await vi.advanceTimersByTimeAsync(0);
+  expect(jobs.subscriptions).toHaveBeenCalledTimes(1);
+  expect(jobs.overdue).toHaveBeenCalledExactlyOnceWith(expect.any(Date), { ignoreSchedule: true });
+  expect(jobs.membership).not.toHaveBeenCalled();
+  await startLocalSchedulers();
+  await vi.advanceTimersByTimeAsync(3600000);
+  expect(jobs.subscriptions).toHaveBeenCalledTimes(2);
+  expect(jobs.membership).toHaveBeenCalledTimes(1); expect(jobs.overdue).toHaveBeenCalledTimes(2);
+  expect(vi.getTimerCount()).toBe(1);
+  vi.clearAllTimers();
+});

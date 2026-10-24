@@ -25,6 +25,7 @@ import { isValidPhone } from "@/lib/phone";
 import { getCompatiblePushSubscription } from "@/lib/push/browser";
 import AdminLogoutButton from "@/components/admin/AdminLogoutButton";
 import CoachMessageModal from "@/components/admin/CoachMessageModal";
+import ClubSubscriptionSummary from "@/app/admin/members/_components/ClubSubscriptionSummary";
 import ActiveDevicesModal from "@/app/admin/members/_components/ActiveDevicesModal";
 import { buildCoachWizardSchedule, type CoachWizardSelection } from "@/lib/coachTrainingWizard";
 import type { CoachTraining, CoachTrainingRecurrence } from "@/lib/coachTrainingSchedule";
@@ -5564,6 +5565,8 @@ function AdminMembersPageContent() {
             <AdminLogoutButton />
           </div>
         </div>
+
+        {clubId && !searchParams.has("coachGroupId") && <ClubSubscriptionSummary key={clubId} clubId={clubId} />}
 
         {/* ── Page header ── */}
         <div className="amp-header">

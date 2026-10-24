@@ -1,1 +1,5 @@
-{}
+{
+  "crons": [
+    { "path": "/api/cron/club-subscription-reminders", "schedule": "0 7 * * *" }
+  ]
+}

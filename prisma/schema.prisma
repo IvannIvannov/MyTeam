@@ -69,6 +69,7 @@ model Club {
   fields                  Field[]
   coachGroups             CoachGroup[]
   notifyOnCoachVisit      Boolean                     @default(false) @map("notify_on_coach_visit")
+  platformSubscription    ClubSubscription?
   billingStatus           BillingStatus               @default(demo) @map("billing_status")
   paymentWorkflow         PaymentWorkflow             @default(calendar_month) @map("payment_workflow")
   firstBillingMonth       DateTime?                   @map("first_billing_month") @db.Timestamptz(6)
@@ -739,4 +740,91 @@ model ClubMatchPlayer {
   @@id([matchId, playerId])
   @@index([playerId])
   @@map("club_match_players")
+}
+
+// Platform fees paid by clubs to MyTeam; independent of player/member dues.
+model ClubSubscription {
+  clubId            String @id @map("club_id") @db.Uuid
+  mode              String @default("trial")
+  trialEndDate      String? @map("trial_end_date") @db.VarChar(10)
+  firstBillingMonth String? @map("first_billing_month") @db.VarChar(7)
+  version           Int @default(1)
+  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+  club              Club @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  fees              ClubSubscriptionFee[]
+  payments          ClubSubscriptionPayment[]
+  months            ClubSubscriptionPaymentMonth[]
+  changes           ClubSubscriptionChange[]
+  reminders         ClubSubscriptionReminder[]
+
+  @@map("club_subscriptions")
+}
+
+model ClubSubscriptionFee {
+  id             String @id @default(uuid()) @db.Uuid
+  clubId         String @map("club_id") @db.Uuid
+  effectiveMonth String @map("effective_month") @db.VarChar(7)
+  amount         Decimal @db.Decimal(10, 2)
+  subscription   ClubSubscription @relation(fields: [clubId], references: [clubId], onDelete: Cascade)
+
+  @@unique([clubId, effectiveMonth])
+  @@map("club_subscription_fees")
+}
+
+model ClubSubscriptionPayment {
+  id           String @id @db.Uuid // Client-generated idempotency key.
+  clubId       String @map("club_id") @db.Uuid
+  paidOn       String @map("paid_on") @db.VarChar(10)
+  note         String?
+  total        Decimal @db.Decimal(14, 2)
+  createdBy    String @map("created_by")
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  voidedAt     DateTime? @map("voided_at") @db.Timestamptz(6)
+  voidedBy     String? @map("voided_by")
+  subscription ClubSubscription @relation(fields: [clubId], references: [clubId], onDelete: Cascade)
+  months       ClubSubscriptionPaymentMonth[]
+
+  @@index([clubId, createdAt])
+  @@map("club_subscription_payments")
+}
+
+model ClubSubscriptionPaymentMonth {
+  id           String @id @default(uuid()) @db.Uuid
+  clubId       String @map("club_id") @db.Uuid
+  paymentId    String @map("payment_id") @db.Uuid
+  month        String @db.VarChar(7)
+  amount       Decimal @db.Decimal(10, 2)
+  voidedAt     DateTime? @map("voided_at") @db.Timestamptz(6)
+  subscription ClubSubscription @relation(fields: [clubId], references: [clubId], onDelete: Cascade)
+  payment      ClubSubscriptionPayment @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+
+  // A partial unique index in SQL prevents two live payments for the same club/month.
+  @@index([clubId, month])
+  @@index([paymentId])
+  @@map("club_subscription_payment_months")
+}
+
+model ClubSubscriptionChange {
+  id           String @id @default(uuid()) @db.Uuid
+  clubId       String @map("club_id") @db.Uuid
+  actorId      String @map("actor_id")
+  action       String
+  details      Json
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  subscription ClubSubscription @relation(fields: [clubId], references: [clubId], onDelete: Cascade)
+
+  @@index([clubId, createdAt])
+  @@map("club_subscription_changes")
+}
+
+// One recorded inbox reminder per subscription period/stage, across all workers.
+model ClubSubscriptionReminder {
+  clubId       String @map("club_id") @db.Uuid
+  key          String @db.VarChar(64)
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  subscription ClubSubscription @relation(fields: [clubId], references: [clubId], onDelete: Cascade)
+
+  @@id([clubId, key])
+  @@map("club_subscription_reminders")
 }
