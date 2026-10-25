@@ -7,6 +7,10 @@
     {
       "path": "/api/cron/weekly-coach-birthdays",
       "schedule": "0 7 * * 1"
+    },
+    {
+      "path": "/api/cron/daily-coach-birthdays",
+      "schedule": "0 7 * * *"
     }
   ]
 }

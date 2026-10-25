@@ -15,7 +15,7 @@ export async function startLocalSchedulers() {
 
   const { runClubSubscriptionReminders } = await import("@/lib/jobs/clubSubscriptionReminders");
 
-  const { runWeeklyCoachBirthdays } = await import("@/lib/jobs/weeklyCoachBirthdays");
+  const { runWeeklyCoachBirthdays, runDailyCoachBirthdays } = await import("@/lib/jobs/weeklyCoachBirthdays");
 
   const run = async (options?: {
     forceMembership?: boolean;
@@ -30,6 +30,12 @@ export async function startLocalSchedulers() {
 
     schedulerRunning = true;
     try {
+      try {
+        const daily = await runDailyCoachBirthdays();
+        if (!daily.skipped) console.log("Daily coach birthdays:", daily);
+      } catch (error) {
+        console.error("Local daily coach birthdays failed:", error);
+      }
       try {
         const birthdays = await runWeeklyCoachBirthdays();
         if (!birthdays.skipped) console.log("Weekly coach birthdays:", birthdays);

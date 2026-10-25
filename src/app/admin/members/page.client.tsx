@@ -11,6 +11,7 @@ import MatchAttendancePanel from "@/components/MatchAttendancePanel";
 import MatchHistoryModal from "@/components/MatchHistoryModal";
 import GroupAssignmentFeeNotice from "@/app/admin/members/_components/GroupAssignmentFeeNotice";
 import { previewGroupAssignmentFees, rebaseGroupAssignmentSelection, type GroupFeeSettings } from "@/lib/groupAssignmentFees";
+import FacebookBirthdayModal from "@/app/admin/members/_components/FacebookBirthdayModal";
 import MonthlyFeeModal from "@/app/admin/members/_components/MonthlyFeeModal";
 import { mergeTrainingCalendarDates } from "@/lib/trainingCalendarDates";
 import { applyTrainingFieldToDates, toggleTrainingFieldPiece } from "@/lib/trainingFieldPicker";
@@ -670,6 +671,7 @@ function AdminMembersPageContent() {
   const [birthdayTodayIso, setBirthdayTodayIso] = useState("");
   const [selectedBirthdayDate, setSelectedBirthdayDate] = useState<string | null>(null);
   const birthdayResultsRef = useRef<HTMLElement>(null);
+  const [facebookBirthday, setFacebookBirthday] = useState<{ member: Member; date: string } | null>(null);
   const birthdaysByDay = new Map<string, Member[]>();
   for (const member of members) {
     if (!member.isActive || !member.birthDate) continue;
@@ -5642,19 +5644,6 @@ function AdminMembersPageContent() {
 
         {/* ── Buttons grid ── */}
         <div className="amp-buttons-grid">
-          {clubId && (
-            <button className="amp-reports-btn amp-btn--compact" type="button" onClick={() => {
-              const parts = new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/Sofia", year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(new Date());
-              setBirthdayDate(`${parts.find((part) => part.type === "month")?.value}-${parts.find((part) => part.type === "day")?.value}`);
-              setBirthdayMonth(`${parts.find((part) => part.type === "year")?.value}-${parts.find((part) => part.type === "month")?.value}`);
-              setBirthdayTodayIso(`${parts.find((part) => part.type === "year")?.value}-${parts.find((part) => part.type === "month")?.value}-${parts.find((part) => part.type === "day")?.value}`);
-              setSelectedBirthdayDate(null);
-              void refreshMembersList();
-            }}>
-              <span aria-hidden="true">🎂</span>
-              <span>Рожденици</span>
-            </button>
-          )}
           {(isAdmin || (isCoach && coachGroupId)) && (
             <button className="amp-add-btn" onClick={() => router.push(`/admin/members/add?clubId=${encodeURIComponent(clubId)}${coachGroupId ? `&coachGroupId=${encodeURIComponent(coachGroupId)}` : ""}`)}>
               <PlusIcon />
@@ -5765,6 +5754,19 @@ function AdminMembersPageContent() {
                 <ClipboardListIcon />
                 <span>Присъствия</span>
               </button>
+              {clubId && (
+                <button className="amp-reports-btn amp-btn--compact" type="button" onClick={() => {
+                  const parts = new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/Sofia", year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(new Date());
+                  setBirthdayDate(`${parts.find((part) => part.type === "month")?.value}-${parts.find((part) => part.type === "day")?.value}`);
+                  setBirthdayMonth(`${parts.find((part) => part.type === "year")?.value}-${parts.find((part) => part.type === "month")?.value}`);
+                  setBirthdayTodayIso(`${parts.find((part) => part.type === "year")?.value}-${parts.find((part) => part.type === "month")?.value}-${parts.find((part) => part.type === "day")?.value}`);
+                  setSelectedBirthdayDate(null);
+                  void refreshMembersList();
+                }}>
+                  <span aria-hidden="true">🎂</span>
+                  <span>Рожденици</span>
+                </button>
+              )}
               <button className="amp-download-links-btn amp-scheduler-settings-btn amp-btn--compact" onClick={() => setMatchHistoryOpen(true)} type="button">
                 <CalendarIcon />
                 <span>История на мачовете</span>
@@ -6728,6 +6730,12 @@ function AdminMembersPageContent() {
           </div>
         </div>
       )}
+      {isAdmin && facebookBirthday && (
+        <FacebookBirthdayModal key={`${facebookBirthday.member.id}-${facebookBirthday.date}`}
+          clubId={clubId} coachGroupId={coachGroupId || undefined}
+          playerId={facebookBirthday.member.id} playerName={facebookBirthday.member.fullName}
+          birthdayDate={facebookBirthday.date} onClose={() => setFacebookBirthday(null)} />
+      )}
       {birthdayDate && (
         <div className="amp-overlay amp-overlay--confirm" onClick={() => setBirthdayDate(null)} onKeyDown={(event) => { if (event.key === "Escape") setBirthdayDate(null); }}>
           <div className="amp-modal amp-modal--confirm" role="dialog" aria-modal="true" aria-labelledby="birthday-list-title" onClick={(event) => event.stopPropagation()}>
@@ -6738,6 +6746,7 @@ function AdminMembersPageContent() {
             </h2>
             <div className="amp-modal-body">
               <p>{coachGroupId ? currentCoachGroupName : clubName} · {birthdayDate.split("-").reverse().join(".")}</p>
+              {(isAdmin || isCoach) && <p><a className="amp-btn amp-btn--ghost" href={`/admin/members/facebook?clubId=${encodeURIComponent(clubId)}`}>Facebook страница на клуба</a></p>}
               <h3>Рожденици днес</h3>
               {birthdayMembers.length === 0 ? (
                 <p className="amp-empty amp-empty--modal">{coachGroupId ? "Днес няма рожденици в тази група." : "Днес няма рожденици в клуба."}</p>
@@ -6748,6 +6757,7 @@ function AdminMembersPageContent() {
                       <button className="amp-btn amp-btn--ghost" type="button" onClick={() => { setBirthdayDate(null); setSelectedMember(member); }}>
                         🎂 {member.fullName}
                       </button>
+                      {isAdmin && <button className="amp-birthday-facebook-btn" type="button" onClick={() => setFacebookBirthday({ member, date: birthdayTodayIso })}>Поздрави във Facebook</button>}
                     </li>
                   ))}
                 </ul>
@@ -6823,6 +6833,7 @@ function AdminMembersPageContent() {
                             </span>
                             <span className="amp-birthday-player-arrow" aria-hidden="true">›</span>
                           </button>
+                          {isAdmin && <button className="amp-birthday-facebook-btn" type="button" onClick={() => setFacebookBirthday({ member, date: selectedBirthdayDate })}>Поздрави във Facebook</button>}
                         </li>
                       ))}</ul>
                     ) : <p className="amp-birthday-results-empty">Няма рожденици на тази дата.</p>}

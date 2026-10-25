@@ -1,13 +1,14 @@
 import { beforeEach, expect, it, vi } from "vitest";
-import { nextBirthdayWeek, runWeeklyCoachBirthdays } from "./weeklyCoachBirthdays";
-const mocks = vi.hoisted(() => ({ groups: vi.fn(), create: vi.fn(), push: vi.fn(), publish: vi.fn() }));
-vi.mock("@/lib/db", () => ({ prisma: { coachGroup: { findMany: mocks.groups }, adminNotification: { createMany: mocks.create } } }));
+import { nextBirthdayWeek, runWeeklyCoachBirthdays, runDailyCoachBirthdays } from "./weeklyCoachBirthdays";
+const mocks = vi.hoisted(() => ({ clubs: vi.fn(), groups: vi.fn(), create: vi.fn(), push: vi.fn(), publish: vi.fn() }));
+vi.mock("@/lib/db", () => ({ prisma: { club: { findMany: mocks.clubs }, coachGroup: { findMany: mocks.groups }, adminNotification: { createMany: mocks.create } } }));
 vi.mock("@/lib/push/adminService", () => ({ sendPushToClubAdmins: mocks.push }));
 vi.mock("@/lib/adminNotificationEvents", () => ({ publishAdminNotificationCreated: mocks.publish }));
 const monday = new Date("2026-10-26T07:00:00Z");
 const player = (name: string, date: string) => ({ id: name, fullName: name, birthDate: new Date(date) });
 beforeEach(() => {
   vi.resetAllMocks();
+  mocks.clubs.mockResolvedValue([]);
   mocks.groups.mockResolvedValue([
     { id: "g1", clubId: "c1", name: "Група 1", players: [player("Иван", "2010-11-02"), player("Петър", "2012-11-08"), player("Извън", "2011-11-09")] },
     { id: "g2", clubId: "c2", name: "Група 2", players: [player("Друг", "2014-11-04")] },
@@ -55,4 +56,33 @@ it("isolates a database failure to the affected group", async () => {
   vi.spyOn(console, "error").mockImplementation(() => {});
   expect(await runWeeklyCoachBirthdays(monday)).toMatchObject({ success: false, failedGroups: ["g1"], notifiedGroups: 1 });
   vi.restoreAllMocks();
+});
+it("sends daily club-wide and separate group digests without cross-scope duplicates", async () => {
+  const birthday = player("Рожденик", "2010-10-28");
+  mocks.clubs.mockResolvedValue([{ id: "c1", name: "Клуб", players: [birthday, player("Без група", "2011-10-28"), player("Утре", "2011-10-29")] }]);
+  mocks.groups.mockResolvedValue([
+    { id: "g1", clubId: "c1", name: "Първа", players: [birthday] },
+    { id: "g2", clubId: "c1", name: "Втора", players: [birthday] },
+  ]);
+  const now = new Date("2026-10-28T07:00:00Z");
+  await Promise.all([runDailyCoachBirthdays(now), runDailyCoachBirthdays(now)]);
+  expect(mocks.push).toHaveBeenCalledTimes(3);
+  const club = mocks.push.mock.calls.find((call) => call[2] === null)!;
+  expect(club[1].body).toContain("Без група");
+  expect(club[1].body).not.toContain("Утре");
+  expect(club[1].url).not.toContain("coachGroupId");
+  for (const call of mocks.push.mock.calls.filter((call) => call[2])) {
+    expect(call[1].body).not.toContain("Без група");
+    expect(call[1].url).toContain(`coachGroupId=${call[2]}`);
+  }
+  expect(mocks.clubs.mock.calls[0][0].select.players.where.isActive).toBe(true);
+});
+it("skips daily work before 09:00 Sofia and handles Sofia midnight", async () => {
+  expect(await runDailyCoachBirthdays(new Date("2026-10-27T22:30:00Z"))).toMatchObject({ skipped: true });
+  expect(mocks.groups).not.toHaveBeenCalled();
+});
+it("includes a single whole-club weekly digest alongside group digests", async () => {
+  mocks.clubs.mockResolvedValue([{ id: "c1", name: "Клуб", players: [player("Без група", "2011-11-02")] }]);
+  expect(await runWeeklyCoachBirthdays(monday)).toMatchObject({ notifiedClubs: 1, notifiedGroups: 2 });
+  expect(mocks.push.mock.calls.filter((call) => call[2] === null)).toHaveLength(1);
 });
