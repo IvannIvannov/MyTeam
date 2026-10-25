@@ -6017,3 +6017,111 @@
 .amp-assignment-fee-row { padding: 10px 0; border-bottom: 1px solid rgba(255,255,255,0.1); }
 .amp-assignment-fee-row p { font-size: 13px; line-height: 1.5; margin: 6px 0; }
 .amp-assignment-fee-row .amp-edit-field { margin-top: 8px; }
+
+.amp-birthday-calendar {
+  margin-top: 24px;
+  padding-top: 16px;
+  border-top: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.amp-birthday-calendar-nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+  font-weight: 700;
+}
+
+.amp-birthday-day {
+  min-height: 42px;
+  gap: 5px;
+}
+
+.amp-birthday-day--marked:not(.amp-training-date-btn--today) {
+  background: rgba(250, 190, 70, 0.15);
+  border-color: rgba(250, 190, 70, 0.65);
+  color: #ffd782;
+}
+
+.amp-birthday-day--selected {
+  outline: 2px solid currentColor;
+  outline-offset: -2px;
+}
+
+.amp-birthday-day--past,
+.amp-birthday-day--past.amp-birthday-day--marked {
+  background: rgba(255, 255, 255, 0.03);
+  color: rgba(255, 255, 255, 0.35);
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
+.amp-birthday-results {
+  margin-top: 16px;
+  border: 1px solid rgba(250, 190, 70, 0.22);
+  border-radius: 14px;
+  background: linear-gradient(135deg, rgba(250, 190, 70, 0.07), rgba(255, 255, 255, 0.02));
+  overflow: hidden;
+}
+
+.amp-birthday-results-header {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 16px;
+}
+
+.amp-birthday-results-icon {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  background: rgba(250, 190, 70, 0.1);
+  font-size: 22px;
+}
+
+.amp-birthday-results-heading { flex: 1; min-width: 110px; }
+.amp-birthday-results-label { color: rgba(255, 255, 255, 0.55); font-size: 11px; }
+.amp-birthday-results-heading h3 { margin: 3px 0 0; color: #fff; font-size: 16px; font-weight: 700; }
+.amp-birthday-results-count { padding: 5px 8px; border-radius: 20px; background: rgba(250, 190, 70, 0.1); color: #ffd782; font-size: 11px; white-space: nowrap; }
+.amp-birthday-player-list { list-style: none; margin: 0; padding: 0 8px 8px; }
+
+.amp-birthday-player {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 12px 8px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: #fff;
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.amp-birthday-player:hover { background: rgba(255, 255, 255, 0.06); }
+.amp-birthday-player:focus-visible { outline: 2px solid #ffd782; outline-offset: -2px; }
+.amp-birthday-player-avatar { display: grid; place-items: center; flex-shrink: 0; width: 40px; height: 40px; border-radius: 50%; background: rgba(250, 190, 70, 0.12); color: #ffd782; font-size: 13px; font-weight: 700; }
+.amp-birthday-player-details { display: flex; flex: 1; flex-direction: column; gap: 4px; min-width: 0; }
+.amp-birthday-player-name { font-size: 14px; font-weight: 600; overflow-wrap: anywhere; }
+.amp-birthday-player-hint { color: rgba(255, 255, 255, 0.45); font-size: 11px; }
+.amp-birthday-player-arrow { color: rgba(255, 255, 255, 0.45); font-size: 24px; }
+.amp-birthday-results-empty { margin: 0; padding: 0 16px 16px; color: rgba(255, 255, 255, 0.5); font-size: 13px; }
+
+.amp-birthday-player-avatar {
+  position: relative;
+  overflow: hidden;
+}
+
+.amp-birthday-player-avatar img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
