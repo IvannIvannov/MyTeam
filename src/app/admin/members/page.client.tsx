@@ -6737,7 +6737,7 @@ function AdminMembersPageContent() {
           birthdayDate={facebookBirthday.date} onClose={() => setFacebookBirthday(null)} />
       )}
       {birthdayDate && (
-        <div className="amp-overlay amp-overlay--confirm" onClick={() => setBirthdayDate(null)} onKeyDown={(event) => { if (event.key === "Escape") setBirthdayDate(null); }}>
+        <div className="amp-overlay amp-overlay--confirm" style={selectedMember ? { zIndex: 99 } : undefined} inert={!!selectedMember} aria-hidden={selectedMember ? true : undefined} onClick={() => setBirthdayDate(null)} onKeyDown={(event) => { if (event.key === "Escape") setBirthdayDate(null); }}>
           <div className="amp-modal amp-modal--confirm" role="dialog" aria-modal="true" aria-labelledby="birthday-list-title" onClick={(event) => event.stopPropagation()}>
             <div className="amp-modal-tint" aria-hidden="true" />
             <h2 className="amp-modal-title" id="birthday-list-title">
@@ -6818,7 +6818,7 @@ function AdminMembersPageContent() {
                     {selectedBirthdayMembers.length ? (
                       <ul className="amp-birthday-player-list">{selectedBirthdayMembers.map((member) => (
                         <li key={member.id}>
-                          <button className="amp-birthday-player" type="button" onClick={() => { setBirthdayDate(null); setSelectedMember(member); }}>
+                          <button className="amp-birthday-player" type="button" onClick={() => setSelectedMember(member)}>
                             <span className="amp-birthday-player-avatar" aria-hidden="true">
                               {member.fullName.trim().split(/\s+/).slice(0, 2).map((name) => name[0]).join("")}
                               {member.avatarUrl && (
