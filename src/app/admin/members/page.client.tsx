@@ -5616,7 +5616,7 @@ function AdminMembersPageContent() {
             <h2 className="amp-club-name">
               {clubName}
               {currentCoachGroupName && <span>{` - ${currentCoachGroupName}`}</span>}
-              {clubId && clubBillingStatus && (
+              {isAdmin && clubId && clubBillingStatus && (
                 <span className={`amp-billing-badge amp-billing-badge--${clubBillingStatus}`}>
                   {clubBillingStatus === "active" ? "Активен" : "Демо"}
                 </span>

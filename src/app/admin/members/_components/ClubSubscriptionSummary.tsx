@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { ClubSubscriptionSummaryView, SubscriptionStatus } from "@/lib/clubSubscriptionDomain";
 import styles from "./ClubSubscriptionSummary.module.css";
 const monthLabel = (month: string) => new Intl.DateTimeFormat("bg-BG", { month: "long", year: "numeric", timeZone: "UTC" }).format(new Date(`${month}-01T00:00:00Z`));
@@ -17,6 +17,20 @@ const statusLabels: Record<SubscriptionStatus, string> = {
 export default function ClubSubscriptionSummary({ clubId }: { clubId: string }) {
   const [data, setData] = useState<{ clubId: string; value: ClubSubscriptionSummaryView | null } | null>(null);
   const [error, setError] = useState("");
+  const [isOpen, setIsOpen] = useState(false);
+  const dialogRef = useRef<HTMLDialogElement>(null);
+  useEffect(() => {
+    if (!isOpen) return;
+    const dialog = dialogRef.current;
+    if (!dialog) return;
+    dialog.showModal();
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      dialog.close();
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [isOpen]);
   useEffect(() => {
     const controller = new AbortController();
     let loading = false;
@@ -42,8 +56,12 @@ export default function ClubSubscriptionSummary({ clubId }: { clubId: string }) 
   if (error) return <p role="status" className={styles.error}>{error}</p>;
   if (!subscription) return null;
   const { summary } = subscription;
-  return <section className={styles.panel} aria-label="Абонамент за MyTeam" data-status={summary.status}>
-    <div className={styles.heading}><h3>Абонамент на клуба за MyTeam</h3><span role="status" data-status={summary.status}>{statusLabels[summary.status]}</span></div>
+  return <div className={styles.container}>
+    {summary.status !== "contract" && <button type="button" className={styles.badge} data-status={summary.status} aria-haspopup="dialog" aria-label={`Абонамент за MyTeam: ${statusLabels[summary.status]}`} onClick={() => setIsOpen(true)}>{statusLabels[summary.status]}</button>}
+    <dialog ref={dialogRef} className={styles.dialog} aria-label="Абонамент на клуба за MyTeam" onClose={() => setIsOpen(false)} onClick={(event) => { if (event.target === event.currentTarget) setIsOpen(false); }}>
+    <section className={styles.panel} data-status={summary.status}>
+    <div className={styles.heading}><h3>Абонамент на клуба за MyTeam</h3><button type="button" className={styles.close} aria-label="Затвори" onClick={() => setIsOpen(false)}>×</button></div>
+    <span className={styles.badge} role="status" data-status={summary.status}>{statusLabels[summary.status]}</span>
     {summary.status === "scheduled" && subscription.firstBillingMonth && <p>Платеният абонамент започва от {monthLabel(subscription.firstBillingMonth)}.</p>}
     {subscription.mode === "contract" ? <p>Таксуването се управлява по договор извън приложението.</p> : subscription.mode === "trial" ? <p>{subscription.trialEndDate ? `Пробен период до ${dateLabel(subscription.trialEndDate)} включително.` : "Пробен период без крайна дата."}</p> : <>
       <dl className={styles.metrics}>
@@ -57,5 +75,7 @@ export default function ClubSubscriptionSummary({ clubId }: { clubId: string }) 
       {summary.outstanding.length > 0 && <details><summary>Неплатени месеци ({summary.outstanding.length})</summary><ul>{summary.outstanding.map((m) => <li key={m.month}><span>{monthLabel(m.month)}</span><strong>{m.amount} EUR</strong></li>)}</ul></details>}
       <p className={styles.hint}>Таксите са за абонамента на клуба към MyTeam. При вече извършено плащане се свържете с администратора за отразяването му.</p>
     </>}
-  </section>;
+    </section>
+    </dialog>
+  </div>;
 }

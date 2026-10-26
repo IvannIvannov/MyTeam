@@ -201,7 +201,7 @@ function PaymentForm({ club, busy, save }: { club: ClubSubscriptionView; busy: b
       <p>Може да изберете месеци от повече от една година. Плащането не изчиства други неплатени месеци.</p>
       {selected.length > 0 && <ul className={styles.monthList}>{selected.map((month) => <li key={month}>{monthLabel(month)} — {feeForMonth(subscription.fees, month)} EUR <button type="button" aria-label={`Премахни ${monthLabel(month)}`} onClick={() => setSelected((previous) => previous.filter((m) => m !== month))}>×</button></li>)}</ul>}
       <p className={styles.total}>Общо за {selected.length} месеца: {total} EUR</p>
-      <label htmlFor={`${id}-paid`}>Дата на получаване<input id={`${id}-paid`} type="date" min="2000-01-01" max={localToday()} required value={paidOn} onChange={(e) => setPaidOn(e.target.value)} /></label>
+      <label htmlFor={`${id}-paid`}>Дата на плащане<input id={`${id}-paid`} type="date" min="2000-01-01" max={localToday()} required value={paidOn} onChange={(e) => setPaidOn(e.target.value)} /></label>
       <label htmlFor={`${id}-note`}>Бележка (незадължително)<textarea id={`${id}-note`} maxLength={1000} value={note} onChange={(e) => setNote(e.target.value)} /></label>
     </fieldset>
     {error && <p role="alert" className={styles.error}>{error}</p>}
