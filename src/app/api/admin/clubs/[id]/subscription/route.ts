@@ -12,6 +12,9 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
   if (request.nextUrl.searchParams.has("coachGroupId")) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   const { id } = await params;
   if (!UUID_PATTERN.test(id)) return NextResponse.json({ error: "Invalid club" }, { status: 400 });
+  if (!session.roles.includes("admin") && session.defaultClubId && session.defaultClubId !== id) {
+    return NextResponse.json({ error: "Профилът ви няма достъп до този клуб." }, { status: 403 });
+  }
   try { return NextResponse.json(await getClubSubscriptionSummary(id)); }
   catch (error) { console.error("Club subscription summary failed:", error); return NextResponse.json({ error: "Абонаментът не може да бъде зареден." }, { status: 500 }); }
 }
