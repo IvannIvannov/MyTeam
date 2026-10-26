@@ -332,6 +332,15 @@ export default function AdminPlayersPage() {
           className="mp-reports-btn"
           style={{ width: "100%", justifyContent: "center" }}
           type="button"
+          onClick={() => router.push("/admin/subscriptions")}
+        >
+          Абонаменти
+        </button>
+
+        <button
+          className="mp-reports-btn"
+          style={{ width: "100%", justifyContent: "center" }}
+          type="button"
           onClick={() => router.push("/admin/discounts")}
         >
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">

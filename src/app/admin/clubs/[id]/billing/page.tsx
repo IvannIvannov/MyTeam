@@ -3,6 +3,8 @@
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import styles from "./billing.module.css";
+import SubscriptionSetupFields, { defaultTrialDraft, setupFromDraft } from "@/components/admin/SubscriptionSetupFields";
+import { localToday } from "@/lib/clubSubscriptionDomain";
 
 interface ClubData {
   id: string;
@@ -19,6 +21,7 @@ export default function ClubBillingPage() {
   const clubId = params.id;
   const router = useRouter();
 
+  const [subscriptionDraft, setSubscriptionDraft] = useState(defaultTrialDraft);
   const [loading, setLoading] = useState(true);
   const [club, setClub] = useState<ClubData | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -52,8 +55,7 @@ export default function ClubBillingPage() {
         if (found.firstBillingMonth) {
           setSelectedMonth(new Date(found.firstBillingMonth).toISOString().slice(0, 7));
         } else {
-          const now = new Date();
-          setSelectedMonth(`${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, "0")}`);
+          setSelectedMonth(localToday().slice(0, 7));
         }
       } catch (err) {
         console.error("Error fetching club:", err);
@@ -74,7 +76,8 @@ export default function ClubBillingPage() {
     setActivating(true);
 
     try {
-      const body: Record<string, string> = { firstBillingMonth: selectedMonth, playerStatus };
+      const body: Record<string, unknown> = { firstBillingMonth: selectedMonth, playerStatus };
+      if (club?.billingStatus !== "active") body.subscription = setupFromDraft(subscriptionDraft);
       if (confirm) body.confirm = confirm;
 
       const response = await fetch(`/api/admin/clubs/${clubId}/activate-billing`, {
@@ -112,11 +115,12 @@ export default function ClubBillingPage() {
       );
       setStep("idle");
       setSuccess(
-        `Таксуването е активирано от ${selectedMonth}. Засегнати състезатели: ${affectedPlayers}.`,
+        `Таксуването е активирано от ${selectedMonth}. Засегнати състезатели: ${affectedPlayers}.` +
+          (typeof result.warning === "string" ? ` ${result.warning}` : ""),
       );
     } catch (err) {
       console.error("Billing activation error:", err);
-      setError("Грешка при активиране на таксуването.");
+      setError(err instanceof Error ? err.message : "Грешка при активиране на таксуването.");
       setStep("idle");
     } finally {
       setActivating(false);
@@ -279,6 +283,14 @@ export default function ClubBillingPage() {
               </p>
             )}
           </div>
+
+          {!isActive && (
+            <section className={styles.section}>
+              <h2 className={styles.label}>Абонамент на клуба за MyTeam</h2>
+              <p className={styles.hint}>Изберете пробен период, платен абонамент или „С договор“. Таксите на състезателите се управляват отделно.</p>
+              <SubscriptionSetupFields value={subscriptionDraft} onChange={setSubscriptionDraft} disabled={activating} />
+            </section>
+          )}
 
           <div className={styles.btnRow}>
             {step !== "idle" && (

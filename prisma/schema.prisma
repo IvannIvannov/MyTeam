@@ -24,6 +24,8 @@ enum PaymentWorkflow {
 }
 
 model Club {
+  facebookPageConnection FacebookPageConnection?
+  facebookConnectAttempts FacebookConnectAttempt[]
   id                      String                      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   name                    String
   sports                  String?
@@ -69,6 +71,7 @@ model Club {
   fields                  Field[]
   coachGroups             CoachGroup[]
   notifyOnCoachVisit      Boolean                     @default(false) @map("notify_on_coach_visit")
+  platformSubscription    ClubSubscription?
   billingStatus           BillingStatus               @default(demo) @map("billing_status")
   paymentWorkflow         PaymentWorkflow             @default(calendar_month) @map("payment_workflow")
   firstBillingMonth       DateTime?                   @map("first_billing_month") @db.Timestamptz(6)
@@ -739,4 +742,136 @@ model ClubMatchPlayer {
   @@id([matchId, playerId])
   @@index([playerId])
   @@map("club_match_players")
+}
+
+// Platform fees paid by clubs to MyTeam; independent of player/member dues.
+model ClubSubscription {
+  clubId            String @id @map("club_id") @db.Uuid
+  mode              String @default("trial")
+  trialEndDate      String? @map("trial_end_date") @db.VarChar(10)
+  firstBillingMonth String? @map("first_billing_month") @db.VarChar(7)
+  version           Int @default(1)
+  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+  club              Club @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  fees              ClubSubscriptionFee[]
+  payments          ClubSubscriptionPayment[]
+  months            ClubSubscriptionPaymentMonth[]
+  changes           ClubSubscriptionChange[]
+  reminders         ClubSubscriptionReminder[]
+
+  @@map("club_subscriptions")
+}
+
+model ClubSubscriptionFee {
+  id             String @id @default(uuid()) @db.Uuid
+  clubId         String @map("club_id") @db.Uuid
+  effectiveMonth String @map("effective_month") @db.VarChar(7)
+  amount         Decimal @db.Decimal(10, 2)
+  subscription   ClubSubscription @relation(fields: [clubId], references: [clubId], onDelete: Cascade)
+
+  @@unique([clubId, effectiveMonth])
+  @@map("club_subscription_fees")
+}
+
+model ClubSubscriptionPayment {
+  id           String @id @db.Uuid // Client-generated idempotency key.
+  clubId       String @map("club_id") @db.Uuid
+  paidOn       String @map("paid_on") @db.VarChar(10)
+  note         String?
+  total        Decimal @db.Decimal(14, 2)
+  createdBy    String @map("created_by")
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  voidedAt     DateTime? @map("voided_at") @db.Timestamptz(6)
+  voidedBy     String? @map("voided_by")
+  subscription ClubSubscription @relation(fields: [clubId], references: [clubId], onDelete: Cascade)
+  months       ClubSubscriptionPaymentMonth[]
+
+  @@index([clubId, createdAt])
+  @@map("club_subscription_payments")
+}
+
+model ClubSubscriptionPaymentMonth {
+  id           String @id @default(uuid()) @db.Uuid
+  clubId       String @map("club_id") @db.Uuid
+  paymentId    String @map("payment_id") @db.Uuid
+  month        String @db.VarChar(7)
+  amount       Decimal @db.Decimal(10, 2)
+  voidedAt     DateTime? @map("voided_at") @db.Timestamptz(6)
+  subscription ClubSubscription @relation(fields: [clubId], references: [clubId], onDelete: Cascade)
+  payment      ClubSubscriptionPayment @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+
+  // A partial unique index in SQL prevents two live payments for the same club/month.
+  @@index([clubId, month])
+  @@index([paymentId])
+  @@map("club_subscription_payment_months")
+}
+
+model ClubSubscriptionChange {
+  id           String @id @default(uuid()) @db.Uuid
+  clubId       String @map("club_id") @db.Uuid
+  actorId      String @map("actor_id")
+  action       String
+  details      Json
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  subscription ClubSubscription @relation(fields: [clubId], references: [clubId], onDelete: Cascade)
+
+  @@index([clubId, createdAt])
+  @@map("club_subscription_changes")
+}
+
+// One recorded inbox reminder per subscription period/stage, across all workers.
+model ClubSubscriptionReminder {
+  clubId       String @map("club_id") @db.Uuid
+  key          String @db.VarChar(64)
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  subscription ClubSubscription @relation(fields: [clubId], references: [clubId], onDelete: Cascade)
+
+  @@id([clubId, key])
+  @@map("club_subscription_reminders")
+}
+
+// Durable publishing ledger: one birthday greeting per player/club/year.
+// IDs are snapshots rather than FKs so deleting a player cannot erase duplicate protection.
+model FacebookBirthdayPost {
+  id             String   @id @default(uuid()) @db.Uuid
+  clubId         String   @map("club_id") @db.Uuid
+  playerId       String   @map("player_id") @db.Uuid
+  birthdayYear   Int      @map("birthday_year")
+  message        String
+  photoUrl       String   @map("photo_url")
+  pageId         String   @map("page_id")
+  createdBy      String   @map("created_by")
+  status         String   @default("publishing")
+  facebookPostId String?  @map("facebook_post_id")
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@unique([clubId, playerId, birthdayYear])
+  @@map("facebook_birthday_posts")
+}
+
+
+// Tokens and temporary Page choices are authenticated ciphertext, never browser data.
+model FacebookPageConnection {
+  clubId String @id @map("club_id") @db.Uuid
+  pageId String? @map("page_id")
+  pageName String? @map("page_name")
+  encryptedToken String? @map("encrypted_token")
+  connectedBy String @map("connected_by")
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+  club Club @relation(fields: [clubId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  @@map("facebook_page_connections")
+}
+
+model FacebookConnectAttempt {
+  id String @id
+  clubId String @map("club_id") @db.Uuid
+  sessionHash String @map("session_hash")
+  status String @default("pending")
+  encryptedPages String? @map("encrypted_pages")
+  expiresAt DateTime @map("expires_at") @db.Timestamptz(6)
+  club Club @relation(fields: [clubId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  @@index([expiresAt])
+  @@map("facebook_connect_attempts")
 }

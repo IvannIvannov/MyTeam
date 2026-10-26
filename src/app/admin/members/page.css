@@ -6017,3 +6017,164 @@
 .amp-assignment-fee-row { padding: 10px 0; border-bottom: 1px solid rgba(255,255,255,0.1); }
 .amp-assignment-fee-row p { font-size: 13px; line-height: 1.5; margin: 6px 0; }
 .amp-assignment-fee-row .amp-edit-field { margin-top: 8px; }
+
+.amp-birthday-calendar {
+  margin-top: 24px;
+  padding-top: 16px;
+  border-top: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.amp-birthday-calendar-nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+  font-weight: 700;
+}
+
+.amp-birthday-day {
+  min-height: 42px;
+  gap: 5px;
+}
+
+.amp-birthday-day--marked:not(.amp-training-date-btn--today) {
+  background: rgba(250, 190, 70, 0.15);
+  border-color: rgba(250, 190, 70, 0.65);
+  color: #ffd782;
+}
+
+.amp-birthday-day--selected {
+  outline: 2px solid currentColor;
+  outline-offset: -2px;
+}
+
+.amp-birthday-day--past,
+.amp-birthday-day--past.amp-birthday-day--marked {
+  background: rgba(255, 255, 255, 0.03);
+  color: rgba(255, 255, 255, 0.35);
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
+.amp-birthday-results {
+  margin-top: 16px;
+  border: 1px solid rgba(250, 190, 70, 0.22);
+  border-radius: 14px;
+  background: linear-gradient(135deg, rgba(250, 190, 70, 0.07), rgba(255, 255, 255, 0.02));
+  overflow: hidden;
+}
+
+.amp-birthday-results-header {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 16px;
+}
+
+.amp-birthday-results-icon {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  background: rgba(250, 190, 70, 0.1);
+  font-size: 22px;
+}
+
+.amp-birthday-results-heading { flex: 1; min-width: 110px; }
+.amp-birthday-results-label { color: rgba(255, 255, 255, 0.55); font-size: 11px; }
+.amp-birthday-results-heading h3 { margin: 3px 0 0; color: #fff; font-size: 16px; font-weight: 700; }
+.amp-birthday-results-count { padding: 5px 8px; border-radius: 20px; background: rgba(250, 190, 70, 0.1); color: #ffd782; font-size: 11px; white-space: nowrap; }
+.amp-birthday-player-list { list-style: none; margin: 0; padding: 0 8px 8px; }
+
+.amp-birthday-player {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 12px 8px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: #fff;
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.amp-birthday-player:hover { background: rgba(255, 255, 255, 0.06); }
+.amp-birthday-player:focus-visible { outline: 2px solid #ffd782; outline-offset: -2px; }
+.amp-birthday-player-avatar { display: grid; place-items: center; flex-shrink: 0; width: 40px; height: 40px; border-radius: 50%; background: rgba(250, 190, 70, 0.12); color: #ffd782; font-size: 13px; font-weight: 700; }
+.amp-birthday-player-details { display: flex; flex: 1; flex-direction: column; gap: 4px; min-width: 0; }
+.amp-birthday-player-name { font-size: 14px; font-weight: 600; overflow-wrap: anywhere; }
+.amp-birthday-player-hint { color: rgba(255, 255, 255, 0.45); font-size: 11px; }
+.amp-birthday-player-arrow { color: rgba(255, 255, 255, 0.45); font-size: 24px; }
+.amp-birthday-results-empty { margin: 0; padding: 0 16px 16px; color: rgba(255, 255, 255, 0.5); font-size: 13px; }
+
+.amp-birthday-player-avatar {
+  position: relative;
+  overflow: hidden;
+}
+
+.amp-birthday-player-avatar img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.amp-birthday-facebook-btn {
+  margin: 0 8px 12px 60px;
+  padding: 7px 10px;
+  border: 1px solid rgba(82, 154, 255, 0.35);
+  border-radius: 8px;
+  background: rgba(24, 119, 242, 0.12);
+  color: #a6caff;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.amp-birthday-facebook-btn:hover { background: rgba(24, 119, 242, 0.24); }
+.amp-birthday-facebook-btn:focus-visible { outline: 2px solid #a6caff; outline-offset: 2px; }
+.amp-facebook-dialog {
+  width: min(560px, calc(100vw - 32px));
+  max-height: 90dvh;
+  margin: auto;
+  padding: 24px;
+  box-sizing: border-box;
+  overflow-y: auto;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 16px;
+  background: #15171b;
+  color: #fff;
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.6);
+}
+.amp-facebook-dialog::backdrop { background: rgba(0, 0, 0, 0.75); }
+.amp-facebook-header { display: flex; align-items: center; gap: 12px; position: relative; padding-right: 30px; }
+.amp-facebook-brand { display: grid; place-items: center; flex-shrink: 0; width: 42px; height: 42px; border-radius: 12px; color: #a6caff; background: rgba(24, 119, 242, 0.18); }
+.amp-facebook-header h2 { margin: 0; font-size: 18px; }
+.amp-facebook-header p { margin: 5px 0 0; font-size: 12px; color: rgba(255, 255, 255, 0.6); overflow-wrap: anywhere; }
+.amp-facebook-destination { margin: 20px 0 12px; font-size: 13px; color: rgba(255, 255, 255, 0.65); }
+.amp-facebook-destination strong { color: #fff; }
+.amp-facebook-preview { border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 12px; overflow: hidden; }
+.amp-facebook-preview > img { display: block; width: 100%; height: auto; max-height: 320px; object-fit: contain; background: #0c0d0f; }
+.amp-facebook-preview .amp-edit-field { padding: 16px; margin: 0; }
+.amp-facebook-preview textarea { resize: vertical; min-height: 170px; line-height: 1.6; }
+.amp-facebook-notice, .amp-facebook-success { padding: 12px; border-radius: 10px; font-size: 13px; line-height: 1.6; }
+.amp-facebook-notice { color: #ffd782; background: rgba(250, 190, 70, 0.08); }
+.amp-facebook-success { color: #a4edbe; background: rgba(60, 180, 100, 0.1); }
+.amp-facebook-actions { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 10px; margin-top: 20px; }
+.amp-facebook-publish { display: inline-flex; align-items: center; gap: 8px; background: #1877f2; color: #fff; }
+.amp-facebook-publish:disabled { opacity: 0.45; cursor: not-allowed; }
+
+.amp-facebook-connect { max-width: 680px; margin: 40px auto; padding: 24px; background: var(--surface, #fff); color: var(--text, #172033); border-radius: 20px; box-shadow: 0 8px 32px #17203312; }
+.amp-facebook-connect h1 { font-size: 1.65rem; margin: 24px 0 12px; }
+.amp-facebook-connect h2 { font-size: 1.15rem; }
+.amp-facebook-connect p { line-height: 1.6; margin: 16px 0; }
+.amp-facebook-connect section { border: 1px solid #dce3ed; padding: 20px; margin: 20px 0; border-radius: 14px; }
+.amp-facebook-page-choices { list-style: none; padding: 0; display: grid; gap: 12px; }
+.amp-facebook-page-choices button { width: 100%; white-space: normal; text-align: left; }
+@media (max-width: 720px) { .amp-facebook-connect { margin: 16px; padding: 20px; } }

@@ -11,6 +11,7 @@ import MatchAttendancePanel from "@/components/MatchAttendancePanel";
 import MatchHistoryModal from "@/components/MatchHistoryModal";
 import GroupAssignmentFeeNotice from "@/app/admin/members/_components/GroupAssignmentFeeNotice";
 import { previewGroupAssignmentFees, rebaseGroupAssignmentSelection, type GroupFeeSettings } from "@/lib/groupAssignmentFees";
+import FacebookBirthdayModal from "@/app/admin/members/_components/FacebookBirthdayModal";
 import MonthlyFeeModal from "@/app/admin/members/_components/MonthlyFeeModal";
 import { mergeTrainingCalendarDates } from "@/lib/trainingCalendarDates";
 import { applyTrainingFieldToDates, toggleTrainingFieldPiece } from "@/lib/trainingFieldPicker";
@@ -25,6 +26,7 @@ import { isValidPhone } from "@/lib/phone";
 import { getCompatiblePushSubscription } from "@/lib/push/browser";
 import AdminLogoutButton from "@/components/admin/AdminLogoutButton";
 import CoachMessageModal from "@/components/admin/CoachMessageModal";
+import ClubSubscriptionSummary from "@/app/admin/members/_components/ClubSubscriptionSummary";
 import ActiveDevicesModal from "@/app/admin/members/_components/ActiveDevicesModal";
 import { buildCoachWizardSchedule, type CoachWizardSelection } from "@/lib/coachTrainingWizard";
 import type { CoachTraining, CoachTrainingRecurrence } from "@/lib/coachTrainingSchedule";
@@ -664,6 +666,32 @@ function AdminMembersPageContent() {
   const [memberCoachGroupAssignSaving, setMemberCoachGroupAssignSaving] = useState(false);
   const [memberCoachGroupAssignError, setMemberCoachGroupAssignError] = useState("");
   const [members, setMembers] = useState<Member[]>([]);
+  const [birthdayDate, setBirthdayDate] = useState<string | null>(null);
+  const [birthdayMonth, setBirthdayMonth] = useState("");
+  const [birthdayTodayIso, setBirthdayTodayIso] = useState("");
+  const [selectedBirthdayDate, setSelectedBirthdayDate] = useState<string | null>(null);
+  const birthdayResultsRef = useRef<HTMLElement>(null);
+  const [facebookBirthday, setFacebookBirthday] = useState<{ member: Member; date: string } | null>(null);
+  const birthdaysByDay = new Map<string, Member[]>();
+  for (const member of members) {
+    if (!member.isActive || !member.birthDate) continue;
+    if (coachGroupId && !member.coachGroupIds.includes(coachGroupId)) continue;
+    const birthDate = new Date(member.birthDate);
+    if (Number.isNaN(birthDate.getTime())) continue;
+    const monthDay = `${String(birthDate.getUTCMonth() + 1).padStart(2, "0")}-${String(birthDate.getUTCDate()).padStart(2, "0")}`;
+    const players = birthdaysByDay.get(monthDay) ?? [];
+    players.push(member);
+    birthdaysByDay.set(monthDay, players);
+  }
+  for (const players of birthdaysByDay.values()) players.sort((a, b) => a.fullName.localeCompare(b.fullName, "bg"));
+  const birthdayMembers = birthdaysByDay.get(birthdayDate ?? "") ?? [];
+  const birthdayCalendarMonths = birthdayMonth ? buildCalendarMonths([`${birthdayMonth}-01`]) : [];
+  const selectedBirthdayMembers = birthdaysByDay.get(selectedBirthdayDate?.slice(5) ?? "") ?? [];
+  const changeBirthdayMonth = (offset: number) => {
+    const [year, month] = birthdayMonth.split("-").map(Number);
+    setBirthdayMonth(new Date(Date.UTC(year, month - 1 + offset, 1)).toISOString().slice(0, 7));
+    setSelectedBirthdayDate(null);
+  };
   const [isAdmin, setIsAdmin] = useState(false);
   const [isCoach, setIsCoach] = useState(false);
   const [isClubPushSupported, setIsClubPushSupported] = useState(true);
@@ -5565,6 +5593,8 @@ function AdminMembersPageContent() {
           </div>
         </div>
 
+        {clubId && !searchParams.has("coachGroupId") && <ClubSubscriptionSummary key={clubId} clubId={clubId} />}
+
         {/* ── Page header ── */}
         <div className="amp-header">
           <h1 className="amp-title">Списък състезатели</h1>
@@ -5586,7 +5616,7 @@ function AdminMembersPageContent() {
             <h2 className="amp-club-name">
               {clubName}
               {currentCoachGroupName && <span>{` - ${currentCoachGroupName}`}</span>}
-              {clubId && clubBillingStatus && (
+              {isAdmin && clubId && clubBillingStatus && (
                 <span className={`amp-billing-badge amp-billing-badge--${clubBillingStatus}`}>
                   {clubBillingStatus === "active" ? "Активен" : "Демо"}
                 </span>
@@ -5724,6 +5754,19 @@ function AdminMembersPageContent() {
                 <ClipboardListIcon />
                 <span>Присъствия</span>
               </button>
+              {clubId && (
+                <button className="amp-reports-btn amp-btn--compact" type="button" onClick={() => {
+                  const parts = new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/Sofia", year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(new Date());
+                  setBirthdayDate(`${parts.find((part) => part.type === "month")?.value}-${parts.find((part) => part.type === "day")?.value}`);
+                  setBirthdayMonth(`${parts.find((part) => part.type === "year")?.value}-${parts.find((part) => part.type === "month")?.value}`);
+                  setBirthdayTodayIso(`${parts.find((part) => part.type === "year")?.value}-${parts.find((part) => part.type === "month")?.value}-${parts.find((part) => part.type === "day")?.value}`);
+                  setSelectedBirthdayDate(null);
+                  void refreshMembersList();
+                }}>
+                  <span aria-hidden="true">🎂</span>
+                  <span>Рожденици</span>
+                </button>
+              )}
               <button className="amp-download-links-btn amp-scheduler-settings-btn amp-btn--compact" onClick={() => setMatchHistoryOpen(true)} type="button">
                 <CalendarIcon />
                 <span>История на мачовете</span>
@@ -6683,6 +6726,120 @@ function AdminMembersPageContent() {
                   {trainingGroupModeSaving ? "Запазване..." : "Запази"}
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+      {isAdmin && facebookBirthday && (
+        <FacebookBirthdayModal key={`${facebookBirthday.member.id}-${facebookBirthday.date}`}
+          clubId={clubId} coachGroupId={coachGroupId || undefined}
+          playerId={facebookBirthday.member.id} playerName={facebookBirthday.member.fullName}
+          birthdayDate={facebookBirthday.date} onClose={() => setFacebookBirthday(null)} />
+      )}
+      {birthdayDate && (
+        <div className="amp-overlay amp-overlay--confirm" style={selectedMember ? { zIndex: 99 } : undefined} inert={!!selectedMember} aria-hidden={selectedMember ? true : undefined} onClick={() => setBirthdayDate(null)} onKeyDown={(event) => { if (event.key === "Escape") setBirthdayDate(null); }}>
+          <div className="amp-modal amp-modal--confirm" role="dialog" aria-modal="true" aria-labelledby="birthday-list-title" onClick={(event) => event.stopPropagation()}>
+            <div className="amp-modal-tint" aria-hidden="true" />
+            <h2 className="amp-modal-title" id="birthday-list-title">
+              <span className="amp-modal-title-gradient">Рожденици</span>
+              <button className="amp-modal-close" type="button" autoFocus onClick={() => setBirthdayDate(null)} aria-label="Затвори"><XIcon /></button>
+            </h2>
+            <div className="amp-modal-body">
+              <p>{coachGroupId ? currentCoachGroupName : clubName} · {birthdayDate.split("-").reverse().join(".")}</p>
+              {(isAdmin || isCoach) && <p><a className="amp-btn amp-btn--ghost" href={`/admin/members/facebook?clubId=${encodeURIComponent(clubId)}`}>Facebook страница на клуба</a></p>}
+              <h3>Рожденици днес</h3>
+              {birthdayMembers.length === 0 ? (
+                <p className="amp-empty amp-empty--modal">{coachGroupId ? "Днес няма рожденици в тази група." : "Днес няма рожденици в клуба."}</p>
+              ) : (
+                <ul>
+                  {birthdayMembers.map((member) => (
+                    <li key={member.id}>
+                      <button className="amp-btn amp-btn--ghost" type="button" onClick={() => { setBirthdayDate(null); setSelectedMember(member); }}>
+                        🎂 {member.fullName}
+                      </button>
+                      {isAdmin && <button className="amp-birthday-facebook-btn" type="button" onClick={() => setFacebookBirthday({ member, date: birthdayTodayIso })}>Поздрави във Facebook</button>}
+                    </li>
+                  ))}
+                </ul>
+              )}
+              <section className="amp-birthday-calendar" aria-label="Календар на рождените дни">
+                <div className="amp-birthday-calendar-nav">
+                  <button className="amp-btn amp-btn--ghost" type="button" aria-label="Предишен месец" onClick={() => changeBirthdayMonth(-1)}>‹</button>
+                  <span aria-live="polite">{birthdayCalendarMonths[0]?.label}</span>
+                  <button className="amp-btn amp-btn--ghost" type="button" aria-label="Следващ месец" onClick={() => changeBirthdayMonth(1)}>›</button>
+                </div>
+                <div className="amp-training-calendar">
+                  {birthdayCalendarMonths.map((month) => (
+                    <div key={month.key} className="amp-training-month">
+                      <div className="amp-training-weekdays-row">
+                        {TRAINING_WEEKDAY_SHORT_BG.map((weekday) => <span key={weekday} className="amp-training-weekday-cell">{weekday}</span>)}
+                      </div>
+                      <div className="amp-training-month-grid">
+                        {month.cells.map((date, index) => {
+                          if (!date) return <span key={`empty-${index}`} className="amp-training-calendar-cell amp-training-calendar-cell--empty" aria-hidden="true" />;
+                          const players = birthdaysByDay.get(date.slice(5)) ?? [];
+                          return (
+                            <button key={date} type="button"
+                              className={`amp-training-date-btn amp-birthday-day${players.length ? " amp-birthday-day--marked" : ""}${date < birthdayTodayIso ? " amp-birthday-day--past" : ""}${date === birthdayTodayIso ? " amp-training-date-btn--today" : ""}${date === selectedBirthdayDate ? " amp-birthday-day--selected" : ""}`}
+                              aria-label={`${date.split("-").reverse().join(".")}: ${players.length ? players.map((player) => player.fullName).join(", ") : "Няма рожденици"}`}
+                              aria-current={date === birthdayTodayIso ? "date" : undefined}
+                              aria-pressed={date === selectedBirthdayDate}
+                              onClick={() => {
+                                setSelectedBirthdayDate(date);
+                                if (players.length > 0) {
+                                  window.requestAnimationFrame(() => {
+                                    birthdayResultsRef.current?.scrollIntoView({
+                                      behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth",
+                                      block: "nearest",
+                                    });
+                                  });
+                                }
+                              }}>
+                              <span className="amp-training-day-number">{Number(date.slice(8))}</span>
+                              {date === birthdayTodayIso && <span className="amp-training-day-meta">Днес</span>}
+                              {players.length > 0 && <span className="amp-training-day-meta">🎂 {players.length}</span>}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                {selectedBirthdayDate && (
+                  <section ref={birthdayResultsRef} className="amp-birthday-results" aria-live="polite" aria-labelledby="birthday-results-heading">
+                    <div className="amp-birthday-results-header">
+                      <span className="amp-birthday-results-icon" aria-hidden="true">🎂</span>
+                      <div className="amp-birthday-results-heading">
+                        <span className="amp-birthday-results-label">Рожденици на</span>
+                        <h3 id="birthday-results-heading">{selectedBirthdayDate.split("-").reverse().join(".")}</h3>
+                      </div>
+                      <span className="amp-birthday-results-count">{selectedBirthdayMembers.length} {selectedBirthdayMembers.length === 1 ? "състезател" : "състезатели"}</span>
+                    </div>
+                    {selectedBirthdayMembers.length ? (
+                      <ul className="amp-birthday-player-list">{selectedBirthdayMembers.map((member) => (
+                        <li key={member.id}>
+                          <button className="amp-birthday-player" type="button" onClick={() => setSelectedMember(member)}>
+                            <span className="amp-birthday-player-avatar" aria-hidden="true">
+                              {member.fullName.trim().split(/\s+/).slice(0, 2).map((name) => name[0]).join("")}
+                              {member.avatarUrl && (
+                                // Player avatars use the existing Cloudinary thumbnail URL.
+                                // eslint-disable-next-line @next/next/no-img-element
+                                <img key={member.avatarUrl} src={member.avatarUrl} alt="" width={40} height={40} loading="lazy" onError={(event) => { event.currentTarget.style.display = "none"; }} />
+                              )}
+                            </span>
+                            <span className="amp-birthday-player-details">
+                              <span className="amp-birthday-player-name">{member.fullName}</span>
+                              <span className="amp-birthday-player-hint">Виж състезателя</span>
+                            </span>
+                            <span className="amp-birthday-player-arrow" aria-hidden="true">›</span>
+                          </button>
+                          {isAdmin && <button className="amp-birthday-facebook-btn" type="button" onClick={() => setFacebookBirthday({ member, date: selectedBirthdayDate })}>Поздрави във Facebook</button>}
+                        </li>
+                      ))}</ul>
+                    ) : <p className="amp-birthday-results-empty">Няма рожденици на тази дата.</p>}
+                  </section>
+                )}
+              </section>
             </div>
           </div>
         </div>
