@@ -55,7 +55,8 @@ model Club {
   trainingFieldPieceIds   String[]                    @default([]) @map("training_field_piece_ids") @db.Uuid
   trainingFieldSelections Json?                       @map("training_field_selections")
   trainingWindowDays      Int                         @default(30) @map("training_window_days")
-  trainingGroupMode       String                      @default("team_group") @map("training_group_mode")
+  playerFields            String[]                    @default([]) @map("player_fields")
+  trainingGroupMode       String                      @default("custom_group") @map("training_group_mode")
   rulesDocumentUrl        String?                     @map("rules_document_url")
   rulesDocumentPublicId   String?                     @map("rules_document_public_id")
   rulesDocument           Bytes?                      @map("rules_document")
@@ -265,6 +266,9 @@ model Player {
   attendanceStartedAt  DateTime?                       @map("attendance_started_at") @db.Timestamptz(6)
   attendanceMemberships AttendanceMembership[]
   updatedAt            DateTime                        @default(now()) @map("updated_at") @db.Timestamptz(6)
+  rank                 String?
+  age                  Int?
+  weight               Float?
   jerseyNumber         String?                         @map("jersey_number")
   parentPhone          String?                         @map("parent_phone")
   playerPhone          String?                         @map("player_phone")

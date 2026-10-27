@@ -4018,3 +4018,6 @@ dialog.pm-modal::backdrop {
   color: var(--accent-gold-color);
   margin-bottom: 6px;
 }
+
+.pm-optional-field { display: grid; gap: 6px; }
+.pm-optional-input { background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.22); border-radius: 10px; padding: 10px 12px; color: #fff; }

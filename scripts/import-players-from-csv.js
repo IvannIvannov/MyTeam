@@ -187,6 +187,22 @@ async function resolveClubId(inputClubId) {
   return clubs[0];
 }
 
+function calculatePlayerAge(birthDate) {
+  if (!birthDate) return null;
+  const today = new Date();
+  // Birthdates are calendar dates; take today's date in the club's timezone.
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Europe/Sofia", year: "numeric", month: "2-digit", day: "2-digit",
+  }).formatToParts(today);
+  const year = Number(parts.find(part => part.type === "year")?.value);
+  const month = Number(parts.find(part => part.type === "month")?.value);
+  const day = Number(parts.find(part => part.type === "day")?.value);
+  let age = year - birthDate.getUTCFullYear();
+  if (month < birthDate.getUTCMonth() + 1 ||
+      (month === birthDate.getUTCMonth() + 1 && day < birthDate.getUTCDate())) age--;
+  return age < 0 ? null : age;
+}
+
 async function createPlayerWithCard({ clubId, fullName, birthDate, teamGroup, jerseyNumber, firstBillingMonth }) {
   let lastError = null;
 
@@ -200,6 +216,7 @@ async function createPlayerWithCard({ clubId, fullName, birthDate, teamGroup, je
           fullName,
           status: "warning",
           birthDate: birthDate ?? undefined,
+          age: calculatePlayerAge(birthDate),
           teamGroup: teamGroup ?? undefined,
           jerseyNumber: jerseyNumber ?? undefined,
           firstBillingMonth: firstBillingMonth ?? undefined,

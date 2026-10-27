@@ -1,3 +1,4 @@
+import { playerFieldEnabled } from "@/lib/playerFields";
 import { AttendanceFilterSelect } from "@/components/AttendanceFilterSelect";
 import { useEffect, useRef, useState } from "react";
 import { attendancePercentage } from "@/lib/attendanceEligibility";
@@ -1485,10 +1486,10 @@ function MemberDetailModalLegacy({
             </div>
 
             {/* Row 1 col 2: Набор */}
-            <div className="amp-info-cell">
+            {playerFieldEnabled(member.club, "teamGroup") && (<div className="amp-info-cell">
               <span className="amp-lbl">Набор:</span>
               <span className="amp-val">{member.teamGroup ?? "—"}</span>
-            </div>
+            </div>)}
 
             {/* Row 2 col 1: Статус */}
             <div className="amp-info-cell">
@@ -1502,6 +1503,11 @@ function MemberDetailModalLegacy({
               <span className="amp-lbl">Активна карта:</span>
               <span className="amp-val">{activeCardCode}</span>
             </div>
+
+            <div className="amp-info-cell"><span className="amp-lbl">Възраст:</span><span className="amp-val">{member.age ?? "—"}</span></div>
+            {playerFieldEnabled(member.club, "rank") && <div className="amp-info-cell"><span className="amp-lbl">Степен:</span><span className="amp-val">{member.rank ?? "—"}</span></div>}
+            {playerFieldEnabled(member.club, "weight") && <div className="amp-info-cell"><span className="amp-lbl">Тегло:</span><span className="amp-val">{member.weight == null ? "—" : `${member.weight.toLocaleString("bg-BG")} кг`}</span></div>}
+            {playerFieldEnabled(member.club, "jerseyNumber") && <div className="amp-info-cell"><span className="amp-lbl">Номер в отбора:</span><span className="amp-val">{member.jerseyNumber ?? "—"}</span></div>}
 
             <div className="amp-info-cell">
               <span className="amp-lbl">Телефон родител:</span>
@@ -1882,10 +1888,10 @@ function MemberDetailModal({
               </div>
             </div>
 
-            <div className="amp-info-cell">
+            {playerFieldEnabled(member.club, "teamGroup") && (<div className="amp-info-cell">
               <span className="amp-lbl">Набор:</span>
               <span className="amp-val">{member.teamGroup ?? "-"}</span>
-            </div>
+            </div>)}
 
             <div className="amp-info-cell">
               <span className="amp-lbl">Статус:</span>
@@ -1898,6 +1904,11 @@ function MemberDetailModal({
               <span className="amp-lbl">Активна карта:</span>
               <span className="amp-val">{activeCardCode}</span>
             </div>
+
+            <div className="amp-info-cell"><span className="amp-lbl">Възраст:</span><span className="amp-val">{member.age ?? "—"}</span></div>
+            {playerFieldEnabled(member.club, "rank") && <div className="amp-info-cell"><span className="amp-lbl">Степен:</span><span className="amp-val">{member.rank ?? "—"}</span></div>}
+            {playerFieldEnabled(member.club, "weight") && <div className="amp-info-cell"><span className="amp-lbl">Тегло:</span><span className="amp-val">{member.weight == null ? "—" : `${member.weight.toLocaleString("bg-BG")} кг`}</span></div>}
+            {playerFieldEnabled(member.club, "jerseyNumber") && <div className="amp-info-cell"><span className="amp-lbl">Номер в отбора:</span><span className="amp-val">{member.jerseyNumber ?? "—"}</span></div>}
 
             <div className="amp-info-cell">
               <span className="amp-lbl">Телефон родител:</span>

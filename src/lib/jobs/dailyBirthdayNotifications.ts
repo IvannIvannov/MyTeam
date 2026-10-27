@@ -41,6 +41,7 @@ export interface DailyBirthdayResult {
   birthdayDay: number;
   targetMembers: number;
   alreadySentToday: number;
+  agesUpdated: number;
   pushSummary: {
     total: number;
     sent: number;
@@ -67,9 +68,21 @@ export async function runDailyBirthdayNotifications(
       birthdayDay: day,
       targetMembers: 0,
       alreadySentToday: 0,
+      agesUpdated: 0,
       pushSummary: { total: 0, sent: 0, failed: 0, deactivated: 0 },
     };
   }
+
+  const today = `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+  // One statement catches up missed birthdays, including inactive players.
+  // Repeated runs do not rewrite rows whose age is already correct.
+  const agesUpdated = await prisma.$executeRaw`
+    UPDATE players
+    SET age = EXTRACT(YEAR FROM age(${today}::date, birth_date))::integer
+    WHERE birth_date IS NOT NULL
+      AND birth_date <= ${today}::date
+      AND age IS DISTINCT FROM EXTRACT(YEAR FROM age(${today}::date, birth_date))::integer
+  `;
 
   // Find all active players whose birthday is today (month+day match)
   const birthdayPlayers = await prisma.$queryRaw<BirthdayPlayer[]>`
@@ -97,6 +110,7 @@ export async function runDailyBirthdayNotifications(
       birthdayDay: day,
       targetMembers: 0,
       alreadySentToday: 0,
+      agesUpdated,
       pushSummary: { total: 0, sent: 0, failed: 0, deactivated: 0 },
     };
   }
@@ -155,6 +169,7 @@ export async function runDailyBirthdayNotifications(
     birthdayDay: day,
     targetMembers: targetPlayers.length,
     alreadySentToday: alreadySentIds.size,
+    agesUpdated,
     pushSummary: {
       total: totalPush,
       sent: sentPush,

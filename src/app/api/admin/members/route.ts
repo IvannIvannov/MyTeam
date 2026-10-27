@@ -1,3 +1,4 @@
+import { calculatePlayerAge, optionalPlayerUpdates, PlayerFieldError } from "@/lib/playerFields";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma, withPrismaPoolRetry } from "@/lib/db";
 import { verifyAdminToken } from "@/lib/adminAuth";
@@ -93,7 +94,7 @@ export async function POST(request: NextRequest) {
 
     const club = await prisma.club.findUnique({
       where: { id: clubId },
-      select: { id: true, billingStatus: true, firstBillingMonth: true, defaultPaymentAmount: true },
+      select: { id: true, playerFields: true, billingStatus: true, firstBillingMonth: true, defaultPaymentAmount: true },
     });
     if (!club) {
       return NextResponse.json({ error: "Club not found" }, { status: 404 });
@@ -130,7 +131,6 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const jerseyNumber = body.jerseyNumber ? String(body.jerseyNumber).trim() : null;
     const imageUrl = body.imageUrl ? String(body.imageUrl).trim() : null;
     const avatarUrlInput = body.avatarUrl ? String(body.avatarUrl).trim() : null;
     const adminImagePath = imageUrl || avatarUrlInput || null;
@@ -182,7 +182,10 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Invalid lastPaymentDate" }, { status: 400 });
     }
 
-    const teamGroup = birthDate ? birthDate.getUTCFullYear() : null;
+    const optionalFields = optionalPlayerUpdates({
+      ...body,
+      teamGroup: Object.prototype.hasOwnProperty.call(body, "teamGroup") ? body.teamGroup : birthDate?.getUTCFullYear() ?? null,
+    }, club);
 
     const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
     const rawCoachGroupId = body.coachGroupId != null ? String(body.coachGroupId).trim() : null;
@@ -214,11 +217,11 @@ export async function POST(request: NextRequest) {
             clubId,
             fullName,
             status,
-            jerseyNumber,
+            age: calculatePlayerAge(birthDate),
+            ...optionalFields,
             parentPhone,
             playerPhone,
             birthDate,
-            teamGroup,
             lastPaymentDate,
             coachGroups: coachGroupConnect,
             firstBillingMonth: resolvedFirstBillingMonth,
@@ -282,6 +285,7 @@ export async function POST(request: NextRequest) {
       { status: 201 },
     );
   } catch (error) {
+    if (error instanceof PlayerFieldError) return NextResponse.json({ error: error.message }, { status: 400 });
     console.error("Player creation error:", error);
     return NextResponse.json(
       { error: "Internal Server Error" },
@@ -362,6 +366,9 @@ export async function GET(request: NextRequest) {
         fullName: true,
         status: true,
         jerseyNumber: true,
+        rank: true,
+        weight: true,
+        age: true,
         parentPhone: true,
         playerPhone: true,
         birthDate: true,
@@ -384,6 +391,7 @@ export async function GET(request: NextRequest) {
             id: true,
             name: true,
             paymentWorkflow: true,
+            playerFields: true,
           },
         },
         cards: {

@@ -1,3 +1,4 @@
+import { optionalPlayerUpdates, playerAgeForBirthDate, PlayerFieldError } from "@/lib/playerFields";
 import { resolveMemberFee, feeConflictMessage } from "@/lib/memberFee";
 import { FeeSettingsError } from "@/lib/clubFees";
 import { NextRequest, NextResponse } from "next/server";
@@ -77,6 +78,7 @@ export async function GET(
           select: {
             billingStatus: true,
             paymentWorkflow: true,
+            playerFields: true,
           },
         },
       },
@@ -137,10 +139,8 @@ export async function PUT(
     const fullNameRaw = String(body.fullName ?? "").trim();
     const fullName = fullNameRaw || [firstNameRaw, secondNameRaw].filter(Boolean).join(" ").trim();
     const clubIdRaw = body.clubId;
-    const jerseyNumberRaw = body.jerseyNumber;
     const parentPhoneRaw = body.parentPhone;
     const playerPhoneRaw = body.playerPhone;
-    const teamGroupRaw = body.teamGroup;
     const statusRaw = String(body.status ?? "").trim();
     const birthDateRaw = body.birthDate;
     const avatarUrlRaw = body.avatarUrl;
@@ -204,14 +204,6 @@ export async function PUT(
       statusRaw === "paid" || statusRaw === "warning" || statusRaw === "overdue"
         ? statusRaw
         : undefined;
-    const teamGroup =
-      teamGroupRaw === null || teamGroupRaw === undefined || teamGroupRaw === ""
-        ? null
-        : Number(teamGroupRaw);
-    if (teamGroup !== null && !Number.isInteger(teamGroup)) {
-      return NextResponse.json({ error: "teamGroup must be an integer" }, { status: 400 });
-    }
-
     const birthDate =
       birthDateRaw === null || birthDateRaw === undefined || birthDateRaw === ""
         ? null
@@ -281,10 +273,7 @@ export async function PUT(
         data: {
           fullName,
           ...(clubId ? { clubId } : {}),
-          jerseyNumber:
-            jerseyNumberRaw === null || jerseyNumberRaw === undefined || jerseyNumberRaw === ""
-              ? null
-              : String(jerseyNumberRaw),
+          ...optionalPlayerUpdates(body, targetClub),
           ...(hasParentPhone
             ? {
                 parentPhone:
@@ -301,8 +290,8 @@ export async function PUT(
                     : nextPlayerPhone,
               }
             : {}),
-          teamGroup,
-          birthDate,
+          ...(Object.prototype.hasOwnProperty.call(body, "birthDate")
+            ? { birthDate, ...playerAgeForBirthDate(birthDate, current.birthDate) } : {}),
           ...(shouldSwitchAdminImage
             ? {
                 images: {
@@ -361,6 +350,7 @@ export async function PUT(
       imagePublicId: null,
     });
   } catch (error) {
+    if (error instanceof PlayerFieldError) return NextResponse.json({ error: error.message }, { status: 400 });
     if (error instanceof FeeSettingsError) return NextResponse.json({ error: error.message }, { status: error.status });
     console.error("Member update error:", error);
     return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });

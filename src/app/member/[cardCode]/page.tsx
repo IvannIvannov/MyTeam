@@ -1,4 +1,6 @@
 "use client";
+import { playerFieldEnabled, parsePlayerWeight } from "@/lib/playerFields";
+import PlayerExtraFields from "@/components/PlayerExtraFields";
 import MemberMatchExtraDetails from "@/components/MemberMatchExtraDetails";
 import { matchEventTypeLabel } from "@/lib/matchEventType";
 import MemberMatchDetailsModal, { type MemberMatchDetails as MemberMatch } from "@/components/MemberMatchDetailsModal";
@@ -16,6 +18,10 @@ import { getCompatiblePushSubscription } from "@/lib/push/browser";
 import "./page.css";
 
 interface MemberProfile {
+  playerFields?: string[];
+  rank?: string | null;
+  weight?: number | null;
+  age?: number | null;
   id: string;
   cardCode: string;
   name: string;
@@ -384,6 +390,8 @@ export default function MemberCardPage({
     fullName: "",
     birthDate: "",
     teamGroup: "",
+    rank: "",
+    weight: "",
     jerseyNumber: "",
     parentPhone: "",
     playerPhone: "",
@@ -1073,6 +1081,8 @@ export default function MemberCardPage({
       fullName: member.name ?? "",
       birthDate: member.birthDate ? new Date(member.birthDate).toISOString().slice(0, 10) : "",
       teamGroup: member.team_group !== null && member.team_group !== undefined ? String(member.team_group) : "",
+      rank: member.rank ?? "",
+      weight: member.weight == null ? "" : String(member.weight),
       jerseyNumber: member.jerseyNumber ?? "",
       parentPhone: member.parentPhone ?? "",
       playerPhone: member.playerPhone ?? "",
@@ -1690,6 +1700,7 @@ export default function MemberCardPage({
     setEditSaving(true);
     setEditError("");
     try {
+      const weight = playerFieldEnabled(member, "weight") ? parsePlayerWeight(editForm.weight) : undefined;
       let uploadedImagePath: string | null = null;
       if (editImageFile) {
         const uploaded = await uploadImage(
@@ -1706,8 +1717,10 @@ export default function MemberCardPage({
         body: JSON.stringify({
           fullName,
           birthDate: editForm.birthDate.trim() || null,
-          teamGroup,
-          jerseyNumber: editForm.jerseyNumber.trim() || null,
+          ...(playerFieldEnabled(member, "teamGroup") ? { teamGroup } : {}),
+          ...(playerFieldEnabled(member, "jerseyNumber") ? { jerseyNumber: editForm.jerseyNumber.trim() || null } : {}),
+          ...(playerFieldEnabled(member, "rank") ? { rank: editForm.rank.trim() || null } : {}),
+          ...(playerFieldEnabled(member, "weight") ? { weight } : {}),
           parentPhone,
           playerPhone,
           ...(uploadedImagePath ? { imageUrl: uploadedImagePath } : {}),
@@ -1733,7 +1746,7 @@ export default function MemberCardPage({
       setEditModalOpen(false);
     } catch (e) {
       console.error("Public member edit error:", e);
-      setEditError("Възникна грешка при редактиране.");
+      setEditError(e instanceof Error ? e.message : "Възникна грешка при редактиране.");
     } finally {
       setEditSaving(false);
     }
@@ -2081,7 +2094,7 @@ export default function MemberCardPage({
                 <h1 className="card-title">КЛУБНА КАРТА <span>2026</span></h1>
                 <p className="card-subtitle">{member.clubName || "Клуб"}</p>
               </div>
-              <div className="shield" style={!(member.jerseyNumber && Number.isFinite(Number(member.jerseyNumber))) ? { visibility: "hidden" } : undefined}>
+              <div className="shield" style={!(playerFieldEnabled(member, "jerseyNumber") && member.jerseyNumber && Number.isFinite(Number(member.jerseyNumber))) ? { visibility: "hidden" } : undefined}>
                 <svg viewBox="0 0 50 56" fill="none" className="shield-bg">
                   <path d="M25 2 L47 12 L47 35 Q47 50 25 54 Q3 50 3 35 L3 12 Z" fill="rgba(50,205,50,0.1)" stroke="#32cd32" strokeWidth="2.5" />
                 </svg>
@@ -2108,6 +2121,11 @@ export default function MemberCardPage({
               </div>
               <div className="divider divider--short" />
               <div className="info-rows">
+                <div className="info-row"><span className="info-lbl">Възраст:</span><span className="info-val">{member.age ?? "—"}</span></div>
+                {playerFieldEnabled(member, "rank") && <div className="info-row"><span className="info-lbl">Степен:</span><span className="info-val">{member.rank ?? "—"}</span></div>}
+                {playerFieldEnabled(member, "weight") && <div className="info-row"><span className="info-lbl">Тегло:</span><span className="info-val">{member.weight == null ? "—" : `${member.weight.toLocaleString("bg-BG")} кг`}</span></div>}
+                {playerFieldEnabled(member, "teamGroup") && <div className="info-row"><span className="info-lbl">Набор:</span><span className="info-val">{member.team_group ?? "—"}</span></div>}
+
                 <div className="info-row">
                   <span className="info-lbl">Име:</span>
                   <span className="info-val">{member.name}</span>
@@ -3596,7 +3614,8 @@ export default function MemberCardPage({
                     }}
                   />
                 </label>
-                <label style={{ display: "grid", gap: "6px" }}>
+                <PlayerExtraFields settings={member} values={editForm} variant="member" onChange={(field, value) => setEditForm(prev => ({ ...prev, [field]: value }))} />
+                {playerFieldEnabled(member, "teamGroup") && (<label style={{ display: "grid", gap: "6px" }}>
                   <span className="pm-info-lbl">Набор</span>
                   <input
                     inputMode="numeric"
@@ -3612,8 +3631,8 @@ export default function MemberCardPage({
                       color: "#fff",
                     }}
                   />
-                </label>
-                <label style={{ display: "grid", gap: "6px" }}>
+                </label>)}
+                {playerFieldEnabled(member, "jerseyNumber") && (<label style={{ display: "grid", gap: "6px" }}>
                   <span className="pm-info-lbl">Номер в отбора</span>
                   <input
                     value={editForm.jerseyNumber}
@@ -3626,7 +3645,7 @@ export default function MemberCardPage({
                       color: "#fff",
                     }}
                   />
-                </label>
+                </label>)}
                 <label style={{ display: "grid", gap: "6px" }}>
                   <span className="pm-info-lbl">Телефон на родител</span>
                   <input

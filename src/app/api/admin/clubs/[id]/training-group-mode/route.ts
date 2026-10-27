@@ -1,3 +1,4 @@
+import { ENABLE_TEAM_GROUP_ERROR } from "@/lib/playerFields";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { verifyAdminToken } from "@/lib/adminAuth";
@@ -38,11 +39,15 @@ export async function PATCH(
   }
 
   try {
-    const club = await prisma.club.update({
-      where: { id },
-      data: { trainingGroupMode },
-      select: { id: true, trainingGroupMode: true },
+    const club = await prisma.$transaction(async tx => {
+      await tx.$queryRaw`SELECT id FROM clubs WHERE id = ${id}::uuid FOR UPDATE`;
+      const current = await tx.club.findUnique({ where: { id }, select: { playerFields: true } });
+      if (!current) return null;
+      if (trainingGroupMode === "team_group" && !current.playerFields.includes("teamGroup")) return false;
+      return tx.club.update({ where: { id }, data: { trainingGroupMode }, select: { id: true, trainingGroupMode: true } });
     });
+    if (club === null) return NextResponse.json({ error: "Club not found" }, { status: 404 });
+    if (club === false) return NextResponse.json({ error: ENABLE_TEAM_GROUP_ERROR }, { status: 409 });
     return NextResponse.json(club);
   } catch (error) {
     console.error("Training group mode PATCH error:", error);

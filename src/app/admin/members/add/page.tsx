@@ -1,5 +1,7 @@
 "use client";
 
+import { playerFieldEnabled, parsePlayerWeight } from "@/lib/playerFields";
+import PlayerExtraFields from "@/components/PlayerExtraFields";
 import { FormEvent, Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
@@ -8,6 +10,7 @@ import { extractUploadPathFromCloudinaryUrl } from "@/lib/cloudinaryImagePath";
 import "./page.css";
 
 interface ClubData {
+  playerFields?: string[];
   id: string;
   name: string;
   imageUrl?: string | null;
@@ -42,6 +45,9 @@ function AddMemberPageContent() {
   const [fullName, setFullName] = useState("");
   const [status, setStatus] = useState<"paid" | "warning" | "overdue">("warning");
   const [clubData, setClubData] = useState<ClubData | null>(null);
+  const [rank, setRank] = useState("");
+  const [weight, setWeight] = useState("");
+  const [teamGroup, setTeamGroup] = useState<string | null>(null);
   const [jerseyNumber, setJerseyNumber] = useState("");
   const [parentPhone, setParentPhone] = useState("");
   const [playerPhone, setPlayerPhone] = useState("");
@@ -103,6 +109,7 @@ function AddMemberPageContent() {
             ? raw.firstBillingMonth.toISOString().slice(0, 7)
             : null;
         setClubData({
+          playerFields: Array.isArray(raw.playerFields) ? raw.playerFields.map(String) : [],
           id: String(raw.id ?? ""),
           name: String(raw.name ?? "Отбор"),
           imageUrl: typeof raw.imageUrl === "string" ? raw.imageUrl : null,
@@ -219,6 +226,7 @@ function AddMemberPageContent() {
     }
 
     try {
+      if (playerFieldEnabled(clubData, "weight")) parsePlayerWeight(weight);
       let resolvedAvatarUrl = avatarUrl.trim();
       let resolvedImagePublicId = "";
       let resolvedImagePath = "";
@@ -242,7 +250,10 @@ function AddMemberPageContent() {
       if (parentPhone.trim()) payload.parentPhone = parentPhone.trim();
       if (coachGroupId) payload.coachGroupId = coachGroupId;
 
-      if (jerseyNumber.trim()) payload.jerseyNumber = jerseyNumber.trim();
+      if (playerFieldEnabled(clubData, "rank")) payload.rank = rank.trim();
+      if (playerFieldEnabled(clubData, "weight")) payload.weight = weight.trim();
+      if (playerFieldEnabled(clubData, "teamGroup")) payload.teamGroup = teamGroup?.trim() ?? birthDate.slice(0, 4);
+      if (playerFieldEnabled(clubData, "jerseyNumber") && jerseyNumber.trim()) payload.jerseyNumber = jerseyNumber.trim();
       if (playerPhone.trim()) payload.playerPhone = playerPhone.trim();
       if (firstBillingMonth.trim()) payload.firstBillingMonth = firstBillingMonth.trim();
       if (resolvedAvatarUrl) payload.avatarUrl = resolvedAvatarUrl;
@@ -431,7 +442,12 @@ function AddMemberPageContent() {
                 />
               </div>
               )}
-              <div className="add-member-field">
+              <PlayerExtraFields settings={clubData} values={{ rank, weight }} variant="add" onChange={(field, value) => field === "rank" ? setRank(value) : setWeight(value)} />
+              {playerFieldEnabled(clubData, "teamGroup") && <label className="add-member-field">
+                <span className="add-member-label">Набор</span>
+                <input className="add-member-input" inputMode="numeric" value={teamGroup ?? birthDate.slice(0, 4)} onChange={event => setTeamGroup(event.target.value.replace(/\D/g, ""))} />
+              </label>}
+              {playerFieldEnabled(clubData, "jerseyNumber") && (<div className="add-member-field">
                 <label className="add-member-label">Номер в отбора</label>
                 <input
                   type="text"
@@ -442,7 +458,7 @@ function AddMemberPageContent() {
                   className="add-member-input"
                   placeholder="НЕ Е ЗАДЪЛЖИТЕЛНО"
                 />
-              </div>
+              </div>)}
             </div>
 
             {customGroups.length > 0 && (
