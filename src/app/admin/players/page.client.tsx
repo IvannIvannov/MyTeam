@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import AdminLogoutButton from "@/components/admin/AdminLogoutButton";
+import PlayerNotificationForm from "./PlayerNotificationForm";
 import "./page.css";
 
 const BellIcon = ({ filled = false }: { filled?: boolean }) => (
@@ -459,7 +460,7 @@ export default function AdminPlayersPage() {
           </div>
         </div>
 
-        <div className="mp-demo-box">
+        <div className="mp-demo-box mp-notification-box mp-notification-box--coaches">
           <p className="mp-demo-label">СЪОБЩЕНИЕ ДО ТРЕНЬОРИТЕ</p>
           <div className="mp-demo-picker" ref={coachPickerRef}>
             <button
@@ -591,6 +592,8 @@ export default function AdminPlayersPage() {
             </button>
           </div>
         </div>
+
+        <PlayerNotificationForm clubs={clubs} loading={clubsLoading} />
 
         <div className="mp-add-team-section">
           <button 

@@ -76,9 +76,10 @@ export function buildNotificationPayload(
         tag: "monthly-membership-payment-reminder",
         data: { type: input.type },
       };
+    case "myteam_message":
     case "admin_message":
       return {
-        title: "Съобщение от администратора",
+        title: "Съобщение от администратора на MyTeam",
         body: input.trainerMessage?.trim() || "Имате ново съобщение.",
         url,
         icon: DEFAULT_ICON,

@@ -32,17 +32,19 @@ export default function ClubSubscriptionSummary({ clubId }: { clubId: string }) 
     };
   }, [isOpen]);
   useEffect(() => {
-    const controller = new AbortController();
+    // Ignore stale responses without aborting fetch during effect cleanup.
+    // Cancellation can surface as a runtime AbortError in the dev fetch runtime.
+    let disposed = false;
     let loading = false;
     async function refresh() {
-      if (loading || document.hidden) return;
+      if (disposed || loading || document.hidden) return;
       loading = true;
       try {
-        const response = await fetch(`/api/admin/clubs/${encodeURIComponent(clubId)}/subscription`, { cache: "no-store", signal: controller.signal });
+        const response = await fetch(`/api/admin/clubs/${encodeURIComponent(clubId)}/subscription`, { cache: "no-store" });
         if (!response.ok) throw new Error("Абонаментът не може да бъде зареден.");
         const value = await response.json() as ClubSubscriptionSummaryView | null;
-        if (!controller.signal.aborted) { setData({ clubId, value }); setError(""); }
-      } catch (err) { if (!controller.signal.aborted) setError((err as Error).message); }
+        if (!disposed) { setData({ clubId, value }); setError(""); }
+      } catch (err) { if (!disposed) setError((err as Error).message); }
       finally { loading = false; }
     }
     void refresh();
@@ -50,7 +52,7 @@ export default function ClubSubscriptionSummary({ clubId }: { clubId: string }) 
     document.addEventListener("visibilitychange", onVisible);
     window.addEventListener("focus", onVisible);
     const timer = window.setInterval(() => void refresh(), 60000);
-    return () => { controller.abort(); clearInterval(timer); document.removeEventListener("visibilitychange", onVisible); window.removeEventListener("focus", onVisible); };
+    return () => { disposed = true; clearInterval(timer); document.removeEventListener("visibilitychange", onVisible); window.removeEventListener("focus", onVisible); };
   }, [clubId]);
   const subscription = data?.clubId === clubId ? data.value : null;
   if (error) return <p role="status" className={styles.error}>{error}</p>;

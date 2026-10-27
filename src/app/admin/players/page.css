@@ -92,6 +92,36 @@
   text-transform: uppercase;
 }
 
+.mp-notification-box--coaches {
+  --notification-glow: 56, 189, 248;
+}
+
+.mp-notification-box--players {
+  --notification-glow: 192, 132, 252;
+}
+
+.mp-notification-box {
+  border-color: rgba(var(--notification-glow), 0.45);
+  background: linear-gradient(135deg, rgba(var(--notification-glow), 0.09), rgba(var(--notification-glow), 0.02));
+  box-shadow: 0 0 20px rgba(var(--notification-glow), 0.12), inset 0 0 16px rgba(var(--notification-glow), 0.04);
+  transition: box-shadow 180ms ease, border-color 180ms ease;
+}
+
+.mp-notification-box:hover,
+.mp-notification-box:focus-within {
+  border-color: rgba(var(--notification-glow), 0.7);
+  box-shadow: 0 0 28px rgba(var(--notification-glow), 0.23), inset 0 0 20px rgba(var(--notification-glow), 0.06);
+}
+
+.mp-notification-box .mp-demo-label {
+  color: rgb(var(--notification-glow));
+  text-shadow: 0 0 12px rgba(var(--notification-glow), 0.4);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mp-notification-box { transition: none; }
+}
+
 .mp-demo-actions { display: flex; flex-direction: column; gap: 8px; }
 
 .mp-coach-scope {
@@ -808,4 +838,26 @@
   .rd-stats { grid-template-columns: 1fr 1fr; }
   .rd-filters { flex-direction: column; align-items: flex-start; }
   .rd-filters-left { flex-wrap: wrap; }
+}
+.mp-player-notification-fields {
+  border: 0;
+  margin: 0;
+  padding: 0;
+  min-width: 0;
+}
+
+.mp-player-message {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  margin-top: 10px;
+  margin-bottom: 10px;
+  padding: 10px 12px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--accent-gold-color);
+  border-radius: 8px;
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 14px;
+  resize: vertical;
 }

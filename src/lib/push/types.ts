@@ -7,6 +7,7 @@ export type NotificationTemplateType =
   | "monthly_membership_payment_reminder"
   | "monthly_overdue_payment_reminder"
   | "admin_message"
+  | "myteam_message"
   | "member_push_enabled"
   | "limited_training_created"
   | "limited_training_promoted"
