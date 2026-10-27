@@ -4008,3 +4008,13 @@ dialog.pm-modal::backdrop {
   margin: 0.4rem 0 0;
   line-height: 1.5;
 }
+.member-notification-myteam-badge {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 9999px;
+  background: rgba(201, 168, 76, 0.15);
+  color: var(--accent-gold-color);
+  margin-bottom: 6px;
+}

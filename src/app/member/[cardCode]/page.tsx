@@ -4202,6 +4202,9 @@ export default function MemberCardPage({
                             }} />
                           )}
                         </div>
+                        {notif.type === "myteam_message" || notif.type === "admin_message" ? (
+                          <span className="member-notification-myteam-badge">MYTEAM7</span>
+                        ) : null}
                         <p style={{
                           margin: "4px 0 8px",
                           fontSize: "13px",
