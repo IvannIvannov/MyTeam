@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
 import { POST as createClub } from "../app/api/admin/teams/route";
 import { PUT as editClub } from "../app/api/admin/teams/[id]/route";
@@ -171,4 +171,19 @@ it("clears age when the birthdate is removed", async () => {
   stored.birthDate = new Date("2010-01-01"); stored.age = 20;
   expect((await editPlayer(request({ fullName: "Player", birthDate: null }), { params: Promise.resolve({ id: "player" }) })).status).toBe(200);
   expect(stored.age).toBeNull();
+});
+
+afterEach(() => vi.useRealTimers());
+it.each(["create", "admin edit", "member edit"])("saves the Sofia birthday age during %s", async action => {
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(new Date("2026-10-27T22:30:00Z"));
+  stored.birthDate = new Date("2010-10-27");
+  const body = { fullName: "Player", birthDate: "2010-10-28" };
+  const response = action === "create"
+    ? await createPlayer(request({ ...body, clubId: "club", confirmDuplicate: true }, "POST"))
+    : action === "admin edit"
+      ? await editPlayer(request(body), { params: Promise.resolve({ id: "player" }) })
+      : await editOwnProfile(request(body), { params: Promise.resolve({ cardCode: "CARD" }) });
+  expect(response.status).toBe(action === "create" ? 201 : 200);
+  expect(action === "create" ? mocks.playerCreate.mock.calls[0][0].data.age : stored.age).toBe(16);
 });

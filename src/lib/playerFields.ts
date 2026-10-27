@@ -49,9 +49,16 @@ export function calculatePlayerAge(birthDate: Date | string | null | undefined, 
   if (!birthDate) return null;
   const birth = new Date(birthDate);
   if (Number.isNaN(birth.getTime())) return null;
-  let age = today.getUTCFullYear() - birth.getUTCFullYear();
-  if (today.getUTCMonth() < birth.getUTCMonth() ||
-      (today.getUTCMonth() === birth.getUTCMonth() && today.getUTCDate() < birth.getUTCDate())) age--;
+  // Birthdates are calendar dates; take today's date in the club's timezone.
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Europe/Sofia", year: "numeric", month: "2-digit", day: "2-digit",
+  }).formatToParts(today);
+  const year = Number(parts.find(part => part.type === "year")?.value);
+  const month = Number(parts.find(part => part.type === "month")?.value);
+  const day = Number(parts.find(part => part.type === "day")?.value);
+  let age = year - birth.getUTCFullYear();
+  if (month < birth.getUTCMonth() + 1 ||
+      (month === birth.getUTCMonth() + 1 && day < birth.getUTCDate())) age--;
   return age < 0 ? null : age;
 }
 

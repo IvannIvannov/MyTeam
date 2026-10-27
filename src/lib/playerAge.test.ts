@@ -2,6 +2,14 @@ import { describe, expect, it } from "vitest";
 import { calculatePlayerAge, optionalPlayerUpdates, playerAgeForBirthDate } from "./playerFields";
 
 describe("player age", () => {
+  it.each([
+    ["2026-10-27T21:59:59Z", "2010-10-28", 15],
+    ["2026-10-27T22:00:00Z", "2010-10-28", 16],
+    ["2026-10-27T22:30:00Z", "2010-10-28", 16],
+    ["2026-07-27T21:30:00Z", "2010-07-28", 16],
+  ])("uses the Sofia calendar date at %s", (now, birthDate, expected) => {
+    expect(calculatePlayerAge(birthDate, new Date(now))).toBe(expected);
+  });
   it("counts completed years around birthdays", () => {
     expect(calculatePlayerAge("2010-10-28", new Date("2026-10-27"))).toBe(15);
     expect(calculatePlayerAge("2010-10-28", new Date("2026-10-28"))).toBe(16);
