@@ -1,4 +1,6 @@
 "use client";
+import { playerFieldEnabled, parsePlayerWeight } from "@/lib/playerFields";
+import PlayerExtraFields from "@/components/PlayerExtraFields";
 import { getMatchCalendarDates } from "@/lib/matchScheduleWindow";
 import MatchExtraFields from "@/components/MatchExtraFields";
 import { matchCategoryLabel } from "@/lib/matchCategory";
@@ -722,11 +724,14 @@ function AdminMembersPageContent() {
   const [isDeletingMember, setIsDeletingMember] = useState(false);
   const [editError, setEditError] = useState("");
   const [isSavingEdit, setIsSavingEdit] = useState(false);
+  const [clubPlayerFields, setClubPlayerFields] = useState<string[]>([]);
   const [clubs, setClubs] = useState<ClubOption[]>([]);
   const [editForm, setEditForm] = useState({
     fullName: "",
     clubId: "",
     teamGroup: "",
+    rank: "",
+    weight: "",
     jerseyNumber: "",
     parentPhone: "",
     playerPhone: "",
@@ -736,6 +741,9 @@ function AdminMembersPageContent() {
     imageUrl: "",
     imagePublicId: "",
   });
+  const editPlayerSettings = clubs.find(club => club.id === editForm.clubId)
+    ?? (editForm.clubId === clubId ? { playerFields: clubPlayerFields } : memberToEdit?.club);
+
   const [editAvatarFile, setEditAvatarFile] = useState<File | null>(null);
   const [editAvatarPreviewUrl, setEditAvatarPreviewUrl] = useState("");
   const [clubName, setClubName] = useState("Всички отбори");
@@ -1592,6 +1600,7 @@ function AdminMembersPageContent() {
                       id?: unknown;
                       name?: unknown;
                       sports?: unknown;
+                      playerFields?: unknown;
                       emblemUrl?: unknown;
                       imageUrl?: unknown;
                       imagePublicId?: unknown;
@@ -1602,6 +1611,7 @@ function AdminMembersPageContent() {
                 return {
                   id: String(item.id ?? ""),
                   name: rawName,
+                  playerFields: Array.isArray(item.playerFields) ? item.playerFields.map(String) : undefined,
                   sports: typeof item.sports === "string" ? item.sports : null,
                   emblemUrl: typeof item.emblemUrl === "string" ? item.emblemUrl : null,
                   imageUrl: typeof item.imageUrl === "string" ? item.imageUrl : null,
@@ -1632,6 +1642,8 @@ function AdminMembersPageContent() {
       fullName: member.fullName,
       clubId: member.club?.id ?? "",
       teamGroup: member.teamGroup !== null ? String(member.teamGroup) : "",
+      rank: member.rank ?? "",
+      weight: member.weight == null ? "" : String(member.weight),
       jerseyNumber: member.jerseyNumber ?? "",
       parentPhone: member.parentPhone ?? "",
       playerPhone: member.playerPhone ?? "",
@@ -1693,6 +1705,7 @@ function AdminMembersPageContent() {
     setIsSavingEdit(true);
     setEditError("");
     try {
+      const weight = playerFieldEnabled(editPlayerSettings, "weight") ? parsePlayerWeight(editForm.weight) : undefined;
       let resolvedAvatarUrl = editForm.avatarUrl.trim() || null;
       let resolvedImageUrl = editForm.imageUrl.trim() || null;
       let resolvedImagePublicId = editForm.imagePublicId.trim() || null;
@@ -1714,8 +1727,10 @@ function AdminMembersPageContent() {
         body: JSON.stringify({
           fullName,
           clubId: editForm.clubId,
-          teamGroup: parsedTeamGroup,
-          jerseyNumber: editForm.jerseyNumber.trim() || null,
+          ...(playerFieldEnabled(editPlayerSettings, "teamGroup") ? { teamGroup: parsedTeamGroup } : {}),
+          ...(playerFieldEnabled(editPlayerSettings, "jerseyNumber") ? { jerseyNumber: editForm.jerseyNumber.trim() || null } : {}),
+          ...(playerFieldEnabled(editPlayerSettings, "rank") ? { rank: editForm.rank.trim() || null } : {}),
+          ...(playerFieldEnabled(editPlayerSettings, "weight") ? { weight } : {}),
           parentPhone: editForm.parentPhone.trim() || null,
           playerPhone: editForm.playerPhone.trim() || null,
           birthDate: editForm.birthDate.trim() || null,
@@ -1752,7 +1767,7 @@ function AdminMembersPageContent() {
       router.refresh();
     } catch (error) {
       console.error("Error updating member:", error);
-      setEditError("Възникна грешка при редактиране.");
+      setEditError(error instanceof Error ? error.message : "Възникна грешка при редактиране.");
     } finally {
       setIsSavingEdit(false);
     }
@@ -2036,6 +2051,7 @@ function AdminMembersPageContent() {
             return;
           }
 
+          setClubPlayerFields(Array.isArray(selectedClub.playerFields) ? selectedClub.playerFields : []);
           setClubName(selectedClub.name.trim());
           const selectedSport = (selectedClub as Record<string, unknown>).sports;
           setClubSport(typeof selectedSport === "string" ? selectedSport.trim() : "");
@@ -2116,6 +2132,7 @@ function AdminMembersPageContent() {
             return String(item.id ?? "") === clubId;
           })
           : null;
+        setClubPlayerFields(Array.isArray(selectedClub?.playerFields) ? selectedClub.playerFields : []);
         if (selectedClub?.name) {
           setClubName(String(selectedClub.name));
         }
@@ -6287,14 +6304,15 @@ function AdminMembersPageContent() {
                     </select>
                   </label>
                 )}
-                <label className="amp-edit-field">
+                <PlayerExtraFields settings={editPlayerSettings} values={editForm} onChange={(field, value) => setEditForm(prev => ({ ...prev, [field]: value }))} />
+                {playerFieldEnabled(editPlayerSettings, "jerseyNumber") && (<label className="amp-edit-field">
                   <span className="amp-lbl">Номер в отбора</span>
                   <input
                     className="amp-edit-input"
                     value={editForm.jerseyNumber}
                     onChange={(e) => setEditForm((prev) => ({ ...prev, jerseyNumber: e.target.value }))}
                   />
-                </label>
+                </label>)}
                 <label className="amp-edit-field">
                   <span className="amp-lbl">Телефон на родител</span>
                   <input
@@ -6313,7 +6331,7 @@ function AdminMembersPageContent() {
                     onChange={(e) => setEditForm((prev) => ({ ...prev, playerPhone: e.target.value }))}
                   />
                 </label>
-                <label className="amp-edit-field">
+                {playerFieldEnabled(editPlayerSettings, "teamGroup") && (<label className="amp-edit-field">
                   <span className="amp-lbl">Набор</span>
                   <input
                     className="amp-edit-input"
@@ -6326,7 +6344,7 @@ function AdminMembersPageContent() {
                       }))
                     }
                   />
-                </label>
+                </label>)}
                 <label className="amp-edit-field">
                   <span className="amp-lbl">Дата на раждане</span>
                   <input
@@ -6687,7 +6705,7 @@ function AdminMembersPageContent() {
                   type="button"
                   className={`amp-btn amp-btn--ghost amp-training-view-btn${trainingGroupModeDraft === "team_group" ? " is-active" : ""}`}
                   onClick={() => setTrainingGroupModeDraft("team_group")}
-                  disabled={trainingGroupModeSaving}
+                  disabled={trainingGroupModeSaving || !clubPlayerFields.includes("teamGroup")}
                 >
                   По набори
                 </button>
@@ -6700,9 +6718,21 @@ function AdminMembersPageContent() {
                   По избрани групи
                 </button>
               </div>
-              <p className="amp-lbl" style={{ whiteSpace: "normal", textAlign: "center" }}>
+              <p className="amp-group-settings-description">
                 Избраният начин ще определи как треньорите виждат групите и създават тренировъчни графици.
               </p>
+              {!clubPlayerFields.includes("teamGroup") && (
+                <aside className="amp-group-settings-notice" role="note">
+                  <svg className="amp-group-settings-notice-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" aria-hidden="true">
+                    <circle cx="12" cy="12" r="9" />
+                    <path d="M12 11v6M12 7h.01" />
+                  </svg>
+                  <p>
+                    За графици по набори включете полето <strong>„Набор“</strong> от{" "}
+                    <a href={`/admin/teams/${clubId}/edit`}>редакцията на клуба</a>.
+                  </p>
+                </aside>
+              )}
               {trainingGroupModeError && <p className="amp-confirm-error">{trainingGroupModeError}</p>}
               <div className="amp-modal-actions amp-modal-actions--end">
                 <button

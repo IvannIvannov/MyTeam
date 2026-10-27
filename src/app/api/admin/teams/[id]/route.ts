@@ -1,3 +1,4 @@
+import { parsePlayerFields, HIDE_TEAM_GROUP_ERROR } from "@/lib/playerFields";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import {
@@ -57,6 +58,8 @@ export async function GET(_request: NextRequest, { params }: Params) {
         id: true,
         name: true,
         sports: true,
+        playerFields: true,
+        trainingGroupMode: true,
         emblemUrl: true,
         imageUrl: true,
         imagePublicId: true,
@@ -97,6 +100,11 @@ export async function GET(_request: NextRequest, { params }: Params) {
 export async function PUT(request: NextRequest, { params }: Params) {
   const { id } = await params;
 
+  const token = request.cookies.get("admin_session")?.value;
+  const session = token ? await verifyAdminToken(token) : null;
+  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (!session.roles.includes("admin")) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+
   try {
     const body = await request.json();
     const name = String(body.name ?? "").trim();
@@ -108,15 +116,11 @@ export async function PUT(request: NextRequest, { params }: Params) {
       return NextResponse.json({ error: "Team name is required" }, { status: 400 });
     }
 
-    const existingTeam = await prisma.club.findUnique({
-      where: { id },
-      select: { id: true },
-    });
-
-    if (!existingTeam) {
-      return NextResponse.json({ error: "Team not found" }, { status: 404 });
+    let playerFields: ReturnType<typeof parsePlayerFields> | undefined;
+    if (body.playerFields !== undefined) {
+      try { playerFields = parsePlayerFields(body.playerFields); }
+      catch (error) { return NextResponse.json({ error: (error as Error).message }, { status: 400 }); }
     }
-
     const imageUrl =
       imageUrlRaw === null || imageUrlRaw === undefined || String(imageUrlRaw).trim() === ""
         ? null
@@ -132,15 +136,15 @@ export async function PUT(request: NextRequest, { params }: Params) {
         ? null
         : String(sportsRaw).trim();
 
-    const updated = await prisma.club.update({
-      where: { id },
-      data: {
-        name,
-        sports,
-        imageUrl,
-        imagePublicId,
-      },
+    const updated = await prisma.$transaction(async tx => {
+      await tx.$queryRaw`SELECT id FROM clubs WHERE id = ${id}::uuid FOR UPDATE`;
+      const current = await tx.club.findUnique({ where: { id }, select: { trainingGroupMode: true } });
+      if (!current) return null;
+      if (playerFields && !playerFields.includes("teamGroup") && current.trainingGroupMode === "team_group") return false;
+      return tx.club.update({ where: { id }, data: { name, sports, imageUrl, imagePublicId, playerFields } });
     });
+    if (updated === null) return NextResponse.json({ error: "Team not found" }, { status: 404 });
+    if (updated === false) return NextResponse.json({ error: HIDE_TEAM_GROUP_ERROR }, { status: 409 });
 
     return NextResponse.json(updated);
   } catch (error) {

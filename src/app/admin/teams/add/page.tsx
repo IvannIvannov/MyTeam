@@ -1,5 +1,7 @@
 "use client";
 
+import PlayerFieldSettings from "@/components/PlayerFieldSettings";
+import { type PlayerField } from "@/lib/playerFields";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { extractUploadPathFromCloudinaryUrl } from "@/lib/cloudinaryImagePath";
@@ -17,6 +19,7 @@ export default function AdminAddTeamPage() {
     name: "",
     sports: "",
   });
+  const [playerFields, setPlayerFields] = useState<PlayerField[]>([]);
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -78,6 +81,7 @@ export default function AdminAddTeamPage() {
         body: JSON.stringify({
           name: trimmedName,
           sports: formData.sports.trim(),
+          playerFields,
           imageUrl: resolvedImageUrl,
           imagePublicId: resolvedImagePublicId,
         }),
@@ -182,6 +186,8 @@ export default function AdminAddTeamPage() {
               )}
             </div>
           </div>
+
+          <PlayerFieldSettings value={playerFields} onChange={setPlayerFields} disabled={isSubmitting} />
 
           <div className="form-actions">
             <button type="submit" className="submit-btn" disabled={isSubmitting}>

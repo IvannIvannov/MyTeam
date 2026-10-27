@@ -1,3 +1,4 @@
+import { optionalPlayerUpdates, PlayerFieldError } from "@/lib/playerFields";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import {
@@ -98,6 +99,7 @@ export async function GET(
                 id: true,
                 name: true,
                 sports: true,
+                playerFields: true,
                 imageUrl: true,
                 emblemUrl: true,
                 paymentWorkflow: true,
@@ -274,6 +276,9 @@ export async function GET(
         isActive: card.isActive,
         team_group: card.player.teamGroup,
         jerseyNumber: card.player.jerseyNumber,
+        rank: card.player.rank,
+        weight: card.player.weight,
+        playerFields: card.player.club.playerFields,
         parentPhone: card.player.parentPhone,
         playerPhone: card.player.playerPhone,
         birthDate: card.player.birthDate,
@@ -353,7 +358,7 @@ export async function PUT(
     const hasPlayerPhone = Object.prototype.hasOwnProperty.call(body, "playerPhone");
     const hasImageUrl = Object.prototype.hasOwnProperty.call(body, "imageUrl");
 
-    if (!hasFullName && !hasBirthDate && !hasTeamGroup && !hasJerseyNumber && !hasParentPhone && !hasPlayerPhone && !hasImageUrl) {
+    if (!hasFullName && !hasBirthDate && !hasTeamGroup && !hasJerseyNumber && !hasParentPhone && !hasPlayerPhone && !hasImageUrl && !("rank" in body) && !("weight" in body)) {
       return NextResponse.json({ error: "No editable fields provided" }, { status: 400 });
     }
 
@@ -364,6 +369,7 @@ export async function PUT(
       },
       select: {
         playerId: true,
+        player: { select: { club: { select: { playerFields: true } } } },
       },
     });
 
@@ -372,13 +378,15 @@ export async function PUT(
     }
 
     const data: {
+      rank?: string | null;
+      weight?: number | null;
       fullName?: string;
       birthDate?: Date | null;
       teamGroup?: number | null;
       jerseyNumber?: string | null;
       parentPhone?: string | null;
       playerPhone?: string | null;
-    } = {};
+    } = optionalPlayerUpdates(body, card.player.club);
 
     if (hasFullName) {
       const nextFullName = String((body as { fullName?: unknown }).fullName ?? "").trim();
@@ -399,27 +407,6 @@ export async function PUT(
         }
         data.birthDate = parsed;
       }
-    }
-
-    if (hasTeamGroup) {
-      const rawTeamGroup = (body as { teamGroup?: unknown }).teamGroup;
-      if (rawTeamGroup === null || rawTeamGroup === undefined || String(rawTeamGroup).trim() === "") {
-        data.teamGroup = null;
-      } else {
-        const parsed = Number.parseInt(String(rawTeamGroup), 10);
-        if (Number.isNaN(parsed)) {
-          return NextResponse.json({ error: "Invalid teamGroup" }, { status: 400 });
-        }
-        data.teamGroup = parsed;
-      }
-    }
-
-    if (hasJerseyNumber) {
-      const rawJerseyNumber = (body as { jerseyNumber?: unknown }).jerseyNumber;
-      data.jerseyNumber =
-        rawJerseyNumber === null || rawJerseyNumber === undefined || String(rawJerseyNumber).trim() === ""
-          ? null
-          : String(rawJerseyNumber).trim();
     }
 
     if (hasParentPhone) {
@@ -539,6 +526,7 @@ export async function PUT(
 
     return NextResponse.json({ ok: true });
   } catch (error) {
+    if (error instanceof PlayerFieldError) return NextResponse.json({ error: error.message }, { status: 400 });
     console.error("Member update error:", error);
     return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });
   }

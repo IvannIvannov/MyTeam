@@ -6178,3 +6178,64 @@
 .amp-facebook-page-choices { list-style: none; padding: 0; display: grid; gap: 12px; }
 .amp-facebook-page-choices button { width: 100%; white-space: normal; text-align: left; }
 @media (max-width: 720px) { .amp-facebook-connect { margin: 16px; padding: 20px; } }
+
+/* Group settings guidance */
+.amp-group-settings-description {
+  margin: 2px 0 18px;
+  color: rgba(255, 255, 255, 0.62);
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 1.65;
+  text-align: left;
+}
+
+.amp-group-settings-notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 20px;
+  padding: 14px 16px;
+  border: 1px solid rgba(50, 205, 50, 0.22);
+  border-radius: 12px;
+  background: rgba(50, 205, 50, 0.055);
+}
+
+.amp-group-settings-notice-icon {
+  flex: 0 0 20px;
+  margin-top: 2px;
+  color: #8bdf76;
+}
+
+.amp-group-settings-notice p {
+  min-width: 0;
+  margin: 0;
+  color: rgba(255, 255, 255, 0.75);
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 1.7;
+  overflow-wrap: anywhere;
+}
+
+.amp-group-settings-notice strong {
+  color: #e0f5da;
+  font-weight: 600;
+}
+
+.amp-group-settings-notice a {
+  color: #9be480;
+  font-weight: 500;
+  text-decoration: underline;
+  text-decoration-color: rgba(155, 228, 128, 0.45);
+  text-underline-offset: 3px;
+}
+
+.amp-group-settings-notice a:hover {
+  color: #c5ffad;
+  text-decoration-color: currentColor;
+}
+
+.amp-group-settings-notice a:focus-visible {
+  outline: 2px solid #9be480;
+  outline-offset: 4px;
+  border-radius: 2px;
+}

@@ -34,11 +34,13 @@ interface MemberCard {
 }
 
 interface MemberClub {
+  playerFields?: string[];
   id: string;
   name: string;
 }
 
 interface ClubOption {
+  playerFields?: string[];
   id: string;
   name: string;
   sports?: string | null;
@@ -70,6 +72,8 @@ interface ClubOption {
 }
 
 interface Member {
+  rank?: string | null;
+  weight?: number | null;
   id: string;
   fullName: string;
   nfcTagId: string;

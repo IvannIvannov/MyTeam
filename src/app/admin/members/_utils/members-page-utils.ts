@@ -68,6 +68,8 @@ function normalizeMember(item: unknown): Member {
           .map((v) => String(v ?? "").trim())
           .filter((c) => isCustomTrainingGroupPaletteColor(c))
       : [],
+    rank: raw.rank ? String(raw.rank) : null,
+    weight: typeof raw.weight === "number" ? raw.weight : null,
     jerseyNumber: raw.jerseyNumber ? String(raw.jerseyNumber) : null,
     parentPhone: raw.parentPhone ? String(raw.parentPhone) : null,
     playerPhone: raw.playerPhone ? String(raw.playerPhone) : null,
@@ -79,6 +81,7 @@ function normalizeMember(item: unknown): Member {
     paymentAmount: raw.paymentAmount === null || raw.paymentAmount === undefined ? null : String(raw.paymentAmount),
     club: clubRaw
       ? {
+        playerFields: Array.isArray(clubRaw.playerFields) ? clubRaw.playerFields.map(String) : undefined,
         id: String(clubRaw.id ?? ""),
         name: String(clubRaw.name ?? ""),
       }

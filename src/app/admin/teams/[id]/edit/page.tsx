@@ -1,5 +1,7 @@
 "use client";
 
+import PlayerFieldSettings from "@/components/PlayerFieldSettings";
+import { type PlayerField } from "@/lib/playerFields";
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { extractUploadPathFromCloudinaryUrl } from "@/lib/cloudinaryImagePath";
@@ -12,6 +14,7 @@ interface TeamForm {
 }
 
 interface TeamPayload {
+  playerFields: PlayerField[];
   id: string;
   name: string;
   sports: string | null;
@@ -26,6 +29,7 @@ export default function AdminEditTeamPage() {
   const teamId = typeof params.id === "string" ? params.id : "";
 
   const [formData, setFormData] = useState<TeamForm>({ name: "", sports: "" });
+  const [playerFields, setPlayerFields] = useState<PlayerField[]>([]);
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [existingImagePath, setExistingImagePath] = useState<string | null>(null);
@@ -55,6 +59,7 @@ export default function AdminEditTeamPage() {
         }
 
         const data = (await response.json()) as TeamPayload;
+        setPlayerFields(data.playerFields);
         setFormData({ name: data.name ?? "", sports: data.sports ?? "" });
         setPreviewUrl(data.imageUrl ?? null);
         setExistingImagePath(data.imagePath ?? null);
@@ -134,6 +139,7 @@ export default function AdminEditTeamPage() {
         body: JSON.stringify({
           name: trimmedName,
           sports: formData.sports.trim(),
+          playerFields,
           imageUrl: resolvedImageUrl,
           imagePublicId: resolvedImagePublicId,
         }),
@@ -242,6 +248,8 @@ export default function AdminEditTeamPage() {
               )}
             </div>
           </div>
+
+          <PlayerFieldSettings value={playerFields} onChange={setPlayerFields} disabled={isSubmitting} />
 
           <div className="form-actions">
             <button type="submit" className="submit-btn" disabled={isSubmitting}>
