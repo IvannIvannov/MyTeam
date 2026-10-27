@@ -21,6 +21,7 @@ interface MemberProfile {
   playerFields?: string[];
   rank?: string | null;
   weight?: number | null;
+  age?: number | null;
   id: string;
   cardCode: string;
   name: string;
@@ -2120,6 +2121,7 @@ export default function MemberCardPage({
               </div>
               <div className="divider divider--short" />
               <div className="info-rows">
+                <div className="info-row"><span className="info-lbl">Възраст:</span><span className="info-val">{member.age ?? "—"}</span></div>
                 {playerFieldEnabled(member, "rank") && <div className="info-row"><span className="info-lbl">Степен:</span><span className="info-val">{member.rank ?? "—"}</span></div>}
                 {playerFieldEnabled(member, "weight") && <div className="info-row"><span className="info-lbl">Тегло:</span><span className="info-val">{member.weight == null ? "—" : `${member.weight.toLocaleString("bg-BG")} кг`}</span></div>}
                 {playerFieldEnabled(member, "teamGroup") && <div className="info-row"><span className="info-lbl">Набор:</span><span className="info-val">{member.team_group ?? "—"}</span></div>}

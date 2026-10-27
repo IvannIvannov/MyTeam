@@ -1,3 +1,4 @@
+import { calculatePlayerAge } from "@/lib/playerFields";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { verifyAdminToken } from "@/lib/adminAuth";
@@ -152,6 +153,7 @@ async function createPlayerWithCard({
             attendanceStartedAt,
             status: "warning",
             birthDate: birthDate ?? undefined,
+            age: calculatePlayerAge(birthDate),
             teamGroup: teamGroup ?? undefined,
             jerseyNumber: jerseyNumber ?? undefined,
             firstBillingMonth: firstBillingMonth ?? undefined,

@@ -88,6 +88,7 @@ interface Member {
   avatarUrl: string | null;
   imageUrl: string | null;
   imagePublicId: string | null;
+  age: number | null;
   birthDate: string | null;
   lastPaymentDate: string | null;
   paymentAmount: string | null;

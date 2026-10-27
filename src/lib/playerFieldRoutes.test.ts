@@ -121,3 +121,54 @@ it("uses destination club settings during an admin player transfer", async () =>
   expect(response.status).toBe(200);
   expect(stored).toMatchObject({ clubId: "destination", rank: "2 дан", weight: 72.5, teamGroup: 2014, jerseyNumber: "7" });
 });
+
+describe("age persistence", () => {
+  it.each(["admin", "coach"])("calculates age on creation by %s", async role => {
+    mocks.verify.mockResolvedValue({ roles: [role] });
+    const response = await createPlayer(request({ clubId: "club", fullName: "Player", birthDate: "2010-01-01", confirmDuplicate: true }, "POST"));
+    expect(response.status).toBe(201);
+    expect(mocks.playerCreate.mock.calls[0][0].data.age).toBe(new Date().getUTCFullYear() - 2010);
+  });
+  it("ignores manual age on creation", async () => {
+    expect((await createPlayer(request({ clubId: "club", fullName: "Player", age: 12 }, "POST"))).status).toBe(201);
+    expect(mocks.playerCreate.mock.calls[0][0].data.age).toBeNull();
+  });
+  it.each(["admin", "coach"])("ignores a manual age submitted by %s", async role => {
+    mocks.verify.mockResolvedValue({ roles: [role] });
+    stored.birthDate = new Date("2010-01-01");
+    stored.age = 16;
+    const response = await editPlayer(request({ fullName: "Player", birthDate: "2010-01-01", age: 20 }), { params: Promise.resolve({ id: "player" }) });
+    expect(response.status).toBe(200);
+    expect(stored.age).toBe(16);
+  });
+  it("recalculates age when birthdate changes even if stale age is submitted", async () => {
+    stored.birthDate = new Date("2010-01-01");
+    expect((await editPlayer(request({ fullName: "Player", birthDate: "2012-01-01", age: 20 }), { params: Promise.resolve({ id: "player" }) })).status).toBe(200);
+    expect(stored.age).toBe(new Date().getUTCFullYear() - 2012);
+  });
+  it("preserves birthdate and age on unrelated edits", async () => {
+    stored.birthDate = new Date("2010-01-01"); stored.age = 20;
+    expect((await editPlayer(request({ fullName: "Player" }), { params: Promise.resolve({ id: "player" }) })).status).toBe(200);
+    expect(stored.birthDate).toEqual(new Date("2010-01-01"));
+    expect(stored.age).toBe(20);
+  });
+  it("does not allow members to override their age directly", async () => {
+    stored.age = 20;
+    expect((await editOwnProfile(request({ fullName: "Player", age: 99 }), { params: Promise.resolve({ cardCode: "CARD" }) })).status).toBe(200);
+    expect(stored.age).toBe(20);
+  });
+  it("recalculates age when a member changes birthdate", async () => {
+    expect((await editOwnProfile(request({ birthDate: "2012-01-01" }), { params: Promise.resolve({ cardCode: "CARD" }) })).status).toBe(200);
+    expect(stored.age).toBe(new Date().getUTCFullYear() - 2012);
+  });
+});
+it("ignores invalid manual ages", async () => {
+  stored.age = 16;
+  expect((await editPlayer(request({ fullName: "Player", age: -1 }), { params: Promise.resolve({ id: "player" }) })).status).toBe(200);
+  expect(stored.age).toBe(16);
+});
+it("clears age when the birthdate is removed", async () => {
+  stored.birthDate = new Date("2010-01-01"); stored.age = 20;
+  expect((await editPlayer(request({ fullName: "Player", birthDate: null }), { params: Promise.resolve({ id: "player" }) })).status).toBe(200);
+  expect(stored.age).toBeNull();
+});

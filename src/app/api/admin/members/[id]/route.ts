@@ -1,4 +1,4 @@
-import { optionalPlayerUpdates, PlayerFieldError } from "@/lib/playerFields";
+import { optionalPlayerUpdates, playerAgeForBirthDate, PlayerFieldError } from "@/lib/playerFields";
 import { resolveMemberFee, feeConflictMessage } from "@/lib/memberFee";
 import { FeeSettingsError } from "@/lib/clubFees";
 import { NextRequest, NextResponse } from "next/server";
@@ -290,7 +290,8 @@ export async function PUT(
                     : nextPlayerPhone,
               }
             : {}),
-          birthDate,
+          ...(Object.prototype.hasOwnProperty.call(body, "birthDate")
+            ? { birthDate, ...playerAgeForBirthDate(birthDate, current.birthDate) } : {}),
           ...(shouldSwitchAdminImage
             ? {
                 images: {

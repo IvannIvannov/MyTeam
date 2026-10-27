@@ -1,4 +1,4 @@
-import { optionalPlayerUpdates, PlayerFieldError } from "@/lib/playerFields";
+import { calculatePlayerAge, optionalPlayerUpdates, PlayerFieldError } from "@/lib/playerFields";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma, withPrismaPoolRetry } from "@/lib/db";
 import { verifyAdminToken } from "@/lib/adminAuth";
@@ -217,6 +217,7 @@ export async function POST(request: NextRequest) {
             clubId,
             fullName,
             status,
+            age: calculatePlayerAge(birthDate),
             ...optionalFields,
             parentPhone,
             playerPhone,
@@ -367,6 +368,7 @@ export async function GET(request: NextRequest) {
         jerseyNumber: true,
         rank: true,
         weight: true,
+        age: true,
         parentPhone: true,
         playerPhone: true,
         birthDate: true,

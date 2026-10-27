@@ -1,4 +1,4 @@
-import { optionalPlayerUpdates, PlayerFieldError } from "@/lib/playerFields";
+import { optionalPlayerUpdates, playerAgeForBirthDate, PlayerFieldError } from "@/lib/playerFields";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import {
@@ -278,6 +278,7 @@ export async function GET(
         jerseyNumber: card.player.jerseyNumber,
         rank: card.player.rank,
         weight: card.player.weight,
+        age: card.player.age,
         playerFields: card.player.club.playerFields,
         parentPhone: card.player.parentPhone,
         playerPhone: card.player.playerPhone,
@@ -369,7 +370,7 @@ export async function PUT(
       },
       select: {
         playerId: true,
-        player: { select: { club: { select: { playerFields: true } } } },
+        player: { select: { birthDate: true, club: { select: { playerFields: true } } } },
       },
     });
 
@@ -378,6 +379,7 @@ export async function PUT(
     }
 
     const data: {
+      age?: number | null;
       rank?: string | null;
       weight?: number | null;
       fullName?: string;
@@ -408,6 +410,8 @@ export async function PUT(
         data.birthDate = parsed;
       }
     }
+
+    if (hasBirthDate) Object.assign(data, playerAgeForBirthDate(data.birthDate ?? null, card.player.birthDate));
 
     if (hasParentPhone) {
       const raw = normalizePhone((body as { parentPhone?: unknown }).parentPhone);

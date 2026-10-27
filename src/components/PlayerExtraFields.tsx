@@ -1,4 +1,4 @@
-import { playerFieldEnabled } from "@/lib/playerFields";
+import { PLAYER_FIELD_LABELS, playerFieldEnabled } from "@/lib/playerFields";
 
 export default function PlayerExtraFields({ settings, values, onChange, variant = "admin" }: {
   settings?: { playerFields?: readonly string[] } | null;
@@ -11,9 +11,9 @@ export default function PlayerExtraFields({ settings, values, onChange, variant 
   const inputClass = variant === "add" ? "add-member-input" : variant === "admin" ? "amp-edit-input" : "pm-optional-input";
   return <>{(["rank", "weight"] as const).map(field => playerFieldEnabled(settings, field) ? (
     <label className={fieldClass} key={field}>
-      <span className={labelClass}>{field === "rank" ? "Степен" : "Тегло (кг)"}</span>
+      <span className={labelClass}>{PLAYER_FIELD_LABELS[field]}</span>
       <input className={inputClass} type="text" inputMode={field === "weight" ? "decimal" : "text"}
-        value={values[field]} onChange={event => onChange(field, event.target.value)} />
+        value={values[field] ?? ""} onChange={event => onChange(field, event.target.value)} />
     </label>
   ) : null)}</>;
 }

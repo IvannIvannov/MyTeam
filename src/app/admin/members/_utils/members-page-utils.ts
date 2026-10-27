@@ -69,6 +69,7 @@ function normalizeMember(item: unknown): Member {
           .filter((c) => isCustomTrainingGroupPaletteColor(c))
       : [],
     rank: raw.rank ? String(raw.rank) : null,
+    age: typeof raw.age === "number" ? raw.age : null,
     weight: typeof raw.weight === "number" ? raw.weight : null,
     jerseyNumber: raw.jerseyNumber ? String(raw.jerseyNumber) : null,
     parentPhone: raw.parentPhone ? String(raw.parentPhone) : null,

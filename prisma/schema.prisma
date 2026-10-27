@@ -267,6 +267,7 @@ model Player {
   attendanceMemberships AttendanceMembership[]
   updatedAt            DateTime                        @default(now()) @map("updated_at") @db.Timestamptz(6)
   rank                 String?
+  age                  Int?
   weight               Float?
   jerseyNumber         String?                         @map("jersey_number")
   parentPhone          String?                         @map("parent_phone")
