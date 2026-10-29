@@ -22,6 +22,7 @@ interface PartnerDiscount {
 
 interface TeamConfig {
   discountId: string;
+  teamGroup: number;
   order: number;
   isVisible: boolean;
   discount?: PartnerDiscount;
@@ -181,6 +182,7 @@ export default function DiscountsPageClient() {
     const discount = partners.find(p => p.id === discountId);
     const newConfigs = [...editingTeam.configs, {
       discountId,
+      teamGroup: 0,
       order: editingTeam.configs.length,
       isVisible: true,
       discount
@@ -288,7 +290,7 @@ export default function DiscountsPageClient() {
                   }}>
                     {partner.badgeText || "Няма отстъпка"}
                   </div>
-                  <p className="partner-card-clubs-hint"><Users size={14} /> {teams.filter(team => team.configs.some(config => config.discountId === partner.id && config.isVisible)).length} клуба · Управлявай</p>
+                  <p className="partner-card-clubs-hint"><Users size={14} /> {teams.filter(team => team.configs.some(config => config.discountId === partner.id && config.teamGroup === 0 && config.isVisible)).length} клуба · Управлявай</p>
                   <div style={{ marginTop: "16px", display: "flex", gap: "12px", justifyContent: "center", pointerEvents: "auto" }}>
                     <button className="order-btn" style={{ background: "rgba(50, 150, 255, 0.2)", color: "#4dabf7", width: "36px", height: "36px", borderRadius: "10px" }} onClick={() => { setEditingPartner(partner); setBadgeIsText(!/^-\d+%$/.test(partner.badgeText || "")); }}><Edit2 size={18} /></button>
                     <button className="order-btn" style={{ background: "rgba(255, 68, 68, 0.2)", color: "#ff6666", width: "36px", height: "36px", borderRadius: "10px" }} onClick={() => handleDeletePartner(partner.id)}><Trash2 size={18} /></button>
@@ -339,6 +341,7 @@ export default function DiscountsPageClient() {
                             ...team.configs,
                             ...missingIds.map((id, idx) => ({
                               discountId: id,
+                              teamGroup: 0,
                               order: team.configs.length + idx,
                               isVisible: false
                             }))

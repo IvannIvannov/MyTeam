@@ -7,7 +7,7 @@ interface Club {
   clubId: string;
   clubName: string;
   clubLogoUrl: string | null;
-  configs: { discountId: string; isVisible: boolean }[];
+  configs: { discountId: string; teamGroup: number; isVisible: boolean }[];
 }
 interface Props {
   partner: { id: string; name: string; logoUrl: string | null; badgeText: string | null };
@@ -19,7 +19,7 @@ interface Props {
 export default function PartnerClubsDialog({ partner, teams, onClose, onSaved }: Props) {
   const dialog = useRef<HTMLDialogElement>(null);
   const backdropPress = useRef(false);
-  const [initial] = useState(() => new Set(teams.filter(team => team.configs.some(config => config.discountId === partner.id && config.isVisible)).map(team => team.clubId)));
+  const [initial] = useState(() => new Set(teams.filter(team => team.configs.some(config => config.discountId === partner.id && config.teamGroup === 0 && config.isVisible)).map(team => team.clubId)));
   const [selected, setSelected] = useState(() => new Set(initial));
   const [query, setQuery] = useState("");
   const [saving, setSaving] = useState(false);
