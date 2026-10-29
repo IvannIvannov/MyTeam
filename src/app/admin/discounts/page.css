@@ -359,3 +359,71 @@
 .order-btn:hover {
   color: #fff;
 }
+
+.discounts-admin .partner-card-open { position: absolute; inset: 0; z-index: 1; border: 0; border-radius: inherit; background: transparent; cursor: pointer; }
+.discounts-admin .partner-card-open:focus-visible { outline: 3px solid #a4eaa4; outline-offset: -4px; }
+.discounts-admin .partner-card-clubs-hint { display: flex; justify-content: center; align-items: center; gap: 6px; margin: 16px 0 0; color: #ccc; font-size: 12px; }
+
+.discounts-admin .partner-club-dialog {
+  width: min(920px, calc(100vw - 40px));
+  max-width: none;
+  max-height: calc(100dvh - 40px);
+  margin: auto;
+  padding: 0;
+  color: #eee;
+  background: #131513;
+  border: 1px solid #343c34;
+  border-radius: 24px;
+  box-shadow: 0 32px 100px #000a;
+  overflow-y: auto;
+  font-family: inherit;
+}
+.discounts-admin .partner-club-dialog::backdrop { background: #000b; backdrop-filter: blur(8px); }
+.discounts-admin .pcd-header { display: flex; align-items: center; gap: 18px; padding: 28px; background: radial-gradient(ellipse at top left, #294229, #171c17 75%); border-bottom: 1px solid #ffffff12; }
+.discounts-admin .pcd-partner-logo { width: 76px; height: 76px; flex-shrink: 0; display: grid; place-items: center; padding: 10px; box-sizing: border-box; background: #ffffff0d; border: 1px solid #ffffff15; border-radius: 20px; }
+.discounts-admin .pcd-partner-logo img { width: 100%; height: 100%; object-fit: contain; }
+.discounts-admin .pcd-title { flex: 1; min-width: 0; }
+.discounts-admin .pcd-eyebrow { font-size: 10px; font-weight: 800; letter-spacing: 1.6px; color: #a5c9a5; }
+.discounts-admin .pcd-title h2 { margin: 6px 0 10px; font-size: clamp(20px, 4vw, 28px); line-height: 1.2; overflow-wrap: anywhere; font-weight: 800; }
+.discounts-admin .pcd-badge { display: inline-block; padding: 4px 10px; border-radius: 6px; background: #32cd3220; color: #a4eaa4; font-size: 12px; font-weight: 700; }
+.discounts-admin .pcd-close { display: grid; place-items: center; align-self: flex-start; width: 36px; height: 36px; border-radius: 10px; border: 1px solid #ffffff18; background: #ffffff08; color: #ccc; cursor: pointer; flex-shrink: 0; }
+.discounts-admin .pcd-toolbar { padding: 22px 28px; }
+.discounts-admin .pcd-toolbar p { margin: 0 0 16px; color: #aaa; font-size: 14px; }
+.discounts-admin .pcd-search { display: flex; align-items: center; gap: 10px; padding: 0 14px; background: #0c0e0c; border: 1px solid #ffffff18; border-radius: 12px; color: #888; }
+.discounts-admin .pcd-search:focus-within { border-color: #72b872; }
+.discounts-admin .pcd-search input { min-width: 0; width: 100%; height: 46px; border: 0; background: transparent; color: #fff; font: inherit; font-size: 14px; outline: none; }
+.discounts-admin .pcd-columns { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; padding: 0 28px 24px; }
+.discounts-admin .pcd-column { min-width: 0; background: #ffffff03; border: 1px solid #ffffff0e; border-radius: 16px; padding: 14px; }
+.discounts-admin .pcd-selected { background: #32cd3205; border-color: #32cd3230; }
+.discounts-admin .pcd-column h3 { display: flex; align-items: center; gap: 8px; margin: 2px 0 14px; color: #bbb; font-size: 13px; font-weight: 700; }
+.discounts-admin .pcd-selected h3 { color: #a4eaa4; }
+.discounts-admin .pcd-column h3 > span { margin-left: auto; padding: 3px 8px; background: #ffffff09; border-radius: 6px; font-size: 11px; }
+.discounts-admin .pcd-column ul { list-style: none; padding: 0; margin: 0; display: grid; gap: 8px; }
+.discounts-admin .pcd-club { display: flex; align-items: center; gap: 10px; width: 100%; padding: 10px; text-align: left; border: 1px solid #ffffff0d; border-radius: 12px; background: #1d211d; color: #ddd; cursor: pointer; font: inherit; }
+.discounts-admin .pcd-club:hover { border-color: #ffffff35; background: #242a24; }
+.discounts-admin .pcd-club-logo { display: grid; place-items: center; width: 36px; height: 36px; flex-shrink: 0; border-radius: 9px; background: #ffffff08; padding: 4px; box-sizing: border-box; color: #888; }
+.discounts-admin .pcd-club-logo img { width: 100%; height: 100%; object-fit: contain; }
+.discounts-admin .pcd-club-name { flex: 1; font-size: 13px; font-weight: 600; overflow-wrap: anywhere; }
+.discounts-admin .pcd-club-action { display: grid; place-items: center; width: 26px; height: 26px; flex-shrink: 0; border-radius: 8px; background: #ffffff08; color: #a4eaa4; }
+.discounts-admin .pcd-selected .pcd-club-action { color: #c4a5a5; }
+.discounts-admin .pcd-empty { padding: 24px 8px; text-align: center; color: #888; font-size: 13px; line-height: 1.6; }
+.discounts-admin .pcd-error { margin: 0 28px 16px; padding: 12px; border: 1px solid #ff666640; border-radius: 10px; background: #ff666610; color: #ffa0a0; font-size: 14px; }
+.discounts-admin .pcd-footer { position: sticky; bottom: 0; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 14px; padding: 18px 28px; background: #171b17; border-top: 1px solid #ffffff15; }
+.discounts-admin .pcd-footer > span { color: #aaa; font-size: 12px; }
+.discounts-admin .pcd-footer > div { display: flex; gap: 10px; }
+.discounts-admin .pcd-cancel, .discounts-admin .pcd-save { display: inline-flex; align-items: center; justify-content: center; gap: 8px; padding: 12px 16px; border-radius: 10px; font: inherit; font-size: 13px; font-weight: 700; cursor: pointer; }
+.discounts-admin .pcd-cancel { background: transparent; border: 1px solid #ffffff25; color: #ddd; }
+.discounts-admin .pcd-save { background: #32cd32; border: 1px solid #32cd32; color: #071007; }
+.discounts-admin .partner-club-dialog button:disabled { opacity: .45; cursor: default; }
+.discounts-admin .partner-club-dialog button:focus-visible { outline: 2px solid #a4eaa4; outline-offset: 3px; }
+
+@media (max-width: 600px) {
+  .discounts-admin .partner-club-dialog { width: calc(100vw - 20px); max-height: calc(100dvh - 20px); border-radius: 18px; }
+  .discounts-admin .pcd-header { padding: 20px 16px; gap: 12px; }
+  .discounts-admin .pcd-partner-logo { width: 52px; height: 52px; border-radius: 14px; }
+  .discounts-admin .pcd-toolbar { padding: 20px 16px; }
+  .discounts-admin .pcd-columns { grid-template-columns: 1fr; padding: 0 16px 20px; }
+  .discounts-admin .pcd-footer { padding: 16px; }
+  .discounts-admin .pcd-footer > div { width: 100%; }
+  .discounts-admin .pcd-footer button { flex: 1; }
+}

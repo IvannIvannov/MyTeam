@@ -213,8 +213,8 @@ export async function GET(
       },
     });
 
-    if (configs.length === 0 && (card.player.teamGroup ?? 0) !== 0) {
-      configs = await prisma.teamDiscountConfig.findMany({
+    if ((card.player.teamGroup ?? 0) !== 0) {
+      const clubConfigs = await prisma.teamDiscountConfig.findMany({
         where: {
           clubId: card.player.clubId,
           teamGroup: 0,
@@ -227,6 +227,10 @@ export async function GET(
           order: "asc",
         },
       });
+      // Club assignments apply to every member. Keep the group's ordering and
+      // append missing club partners in their configured order.
+      const groupDiscountIds = new Set(configs.map(config => config.discount.id));
+      configs = [...configs, ...clubConfigs.filter(config => !groupDiscountIds.has(config.discount.id))];
     }
 
     const assignedDiscounts = configs;

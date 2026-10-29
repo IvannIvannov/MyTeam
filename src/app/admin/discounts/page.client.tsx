@@ -2,8 +2,9 @@
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { Plus, Edit2, Trash2, ChevronUp, ChevronDown, Check, X, GripVertical, ArrowLeft, Settings2, Users, Upload, Loader2 } from "lucide-react";
+import { Plus, Edit2, Trash2, Check, X, GripVertical, ArrowLeft, Settings2, Users, Upload, Loader2 } from "lucide-react";
 import { uploadImage } from "@/lib/uploadImage";
+import PartnerClubsDialog from "./PartnerClubsDialog";
 import "./page.css";
 
 interface PartnerDiscount {
@@ -48,6 +49,7 @@ export default function DiscountsPageClient() {
   const [dragIndex, setDragIndex] = useState<number | null>(null);
   const [badgeIsText, setBadgeIsText] = useState(false);
   const [teamSearch, setTeamSearch] = useState("");
+  const [clubPartner, setClubPartner] = useState<PartnerDiscount | null>(null);
 
   useEffect(() => {
     fetchData();
@@ -261,7 +263,8 @@ export default function DiscountsPageClient() {
                   boxShadow: "0 10px 30px rgba(0,0,0,0.5)"
                 }}
               >
-                <div style={{ position: "relative", zIndex: 2, textAlign: "center", width: "100%" }}>
+                <button type="button" className="partner-card-open" aria-label={`Управление на клубовете за ${partner.name}`} onClick={() => setClubPartner(partner)} />
+                <div style={{ position: "relative", zIndex: 2, textAlign: "center", width: "100%", pointerEvents: "none" }}>
                   <div className="partner-name" style={{ 
                     fontSize: "18px", 
                     fontWeight: "800", 
@@ -285,7 +288,8 @@ export default function DiscountsPageClient() {
                   }}>
                     {partner.badgeText || "Няма отстъпка"}
                   </div>
-                  <div style={{ marginTop: "24px", display: "flex", gap: "12px", justifyContent: "center" }}>
+                  <p className="partner-card-clubs-hint"><Users size={14} /> {teams.filter(team => team.configs.some(config => config.discountId === partner.id && config.isVisible)).length} клуба · Управлявай</p>
+                  <div style={{ marginTop: "16px", display: "flex", gap: "12px", justifyContent: "center", pointerEvents: "auto" }}>
                     <button className="order-btn" style={{ background: "rgba(50, 150, 255, 0.2)", color: "#4dabf7", width: "36px", height: "36px", borderRadius: "10px" }} onClick={() => { setEditingPartner(partner); setBadgeIsText(!/^-\d+%$/.test(partner.badgeText || "")); }}><Edit2 size={18} /></button>
                     <button className="order-btn" style={{ background: "rgba(255, 68, 68, 0.2)", color: "#ff6666", width: "36px", height: "36px", borderRadius: "10px" }} onClick={() => handleDeletePartner(partner.id)}><Trash2 size={18} /></button>
                   </div>
@@ -303,6 +307,7 @@ export default function DiscountsPageClient() {
               className="form-input"
               style={{ width: "240px", fontSize: "14px" }}
               placeholder="Търси отбор..."
+              aria-label="Търси отбор"
               value={teamSearch}
               onChange={e => setTeamSearch(e.target.value)}
             />
@@ -363,6 +368,10 @@ export default function DiscountsPageClient() {
           </div>
         </section>
       </div>
+
+      {clubPartner && (
+        <PartnerClubsDialog partner={clubPartner} teams={teams} onClose={() => setClubPartner(null)} onSaved={() => { setClubPartner(null); void fetchData(); }} />
+      )}
 
       {/* Partner Edit Modal */}
       {editingPartner && (
