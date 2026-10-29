@@ -33,8 +33,10 @@ export async function GET(request: NextRequest) {
       orderBy: { name: "asc" }
     });
 
-    // 2. Get all discount configs
+    // This editor saves club-wide assignments. Group overrides must not be
+    // flattened into that payload or they duplicate the club's partner IDs.
     const configs = await prisma.teamDiscountConfig.findMany({
+      where: { teamGroup: 0 },
       include: {
         discount: true
       },

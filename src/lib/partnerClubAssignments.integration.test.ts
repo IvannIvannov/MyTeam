@@ -4,6 +4,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vites
 import { NextRequest } from "next/server";
 import { PATCH } from "@/app/api/admin/discounts/clubs/route";
 import { GET } from "@/app/api/members/[cardCode]/route";
+import { GET as clubEditorData, POST as saveClubEditor } from "@/app/api/admin/teams/discounts/route";
 
 // Only discount persistence uses SQL; unrelated member-profile services are fixtures.
 // PGlite is an in-memory PostgreSQL instance and never reads DATABASE_URL.
@@ -14,7 +15,7 @@ const mocks = vi.hoisted(() => ({
   playerNotification: { findMany: vi.fn(), count: vi.fn() },
   paymentLog: { findMany: vi.fn() },
   paymentWaiver: { findMany: vi.fn() },
-  teamDiscountConfig: { findMany: vi.fn() },
+  teamDiscountConfig: { findMany: vi.fn(), deleteMany: vi.fn(), createMany: vi.fn() },
   $transaction: vi.fn(),
 }));
 vi.mock("@/lib/db", () => ({ prisma: mocks }));
@@ -45,8 +46,8 @@ beforeEach(async () => {
 
   mocks.partnerDiscount.findUnique.mockImplementation(async ({ where }: { where: { id: string } }) =>
     (await db.query("SELECT id FROM partner_discounts WHERE id=$1", [where.id])).rows[0] ?? null);
-  mocks.club.findMany.mockImplementation(async ({ where }: { where: { id: { in: string[] } } }) =>
-    (await db.query("SELECT id FROM clubs WHERE id=ANY($1::uuid[])", [where.id.in])).rows);
+  mocks.club.findMany.mockImplementation(async ({ where }: { where?: { id: { in: string[] } } }) =>
+    (await db.query("SELECT id, 'Test Club' AS name FROM clubs WHERE ($1::uuid[] IS NULL OR id=ANY($1::uuid[]))", [where?.id.in ?? null])).rows);
   mocks.card.findFirst.mockImplementation(async () => ({
     cardCode: "TEST-CARD", isActive: true,
     player: { id: "test-player", clubId, fullName: "Test Player", teamGroup: memberGroup,
@@ -56,14 +57,27 @@ beforeEach(async () => {
   mocks.playerNotification.count.mockResolvedValue(0);
   mocks.paymentLog.findMany.mockResolvedValue([]);
   mocks.paymentWaiver.findMany.mockResolvedValue([]);
-  mocks.teamDiscountConfig.findMany.mockImplementation(async ({ where }: { where: { clubId: string; teamGroup: number; isVisible: boolean } }) => {
-    const result = await db.query<{ id: string; name: string; order: number }>(
-      'SELECT d.id,d.name,c."order" FROM team_discount_configs c JOIN partner_discounts d ON d.id=c.discount_id WHERE c.club_id=$1 AND c.team_group=$2 AND c.is_visible=$3 ORDER BY c."order"',
-      [where.clubId, where.teamGroup, where.isVisible],
+  mocks.teamDiscountConfig.findMany.mockImplementation(async ({ where }: { where?: { clubId?: string; teamGroup?: number; isVisible?: boolean } }) => {
+    const result = await db.query<{ id: string; name: string; order: number; clubId: string; teamGroup: number; isVisible: boolean }>(
+      'SELECT d.id,d.name,c."order",c.club_id AS "clubId",c.team_group AS "teamGroup",c.is_visible AS "isVisible" FROM team_discount_configs c JOIN partner_discounts d ON d.id=c.discount_id WHERE ($1::uuid IS NULL OR c.club_id=$1) AND ($2::integer IS NULL OR c.team_group=$2) AND ($3::boolean IS NULL OR c.is_visible=$3) ORDER BY c."order"',
+      [where?.clubId ?? null, where?.teamGroup ?? null, where?.isVisible ?? null],
     );
-    return result.rows.map(row => ({ order: row.order, discount: { id: row.id, name: row.name, terms: [] } }));
+    return result.rows.map(row => ({ clubId: row.clubId, teamGroup: row.teamGroup, discountId: row.id, isVisible: row.isVisible, order: row.order, discount: { id: row.id, name: row.name, terms: [] } }));
   });
-  mocks.$transaction.mockImplementation(async callback => db.transaction(async tx => callback({
+  type TestTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
+  // Defer batch operations until the transaction starts, like PrismaPromise.
+  mocks.teamDiscountConfig.deleteMany.mockImplementation(({ where }: { where: { clubId: string; teamGroup: number } }) =>
+    (tx: TestTransaction) => tx.query("DELETE FROM team_discount_configs WHERE club_id=$1 AND team_group=$2", [where.clubId, where.teamGroup]));
+  mocks.teamDiscountConfig.createMany.mockImplementation(({ data }: { data: { clubId: string; teamGroup: number; discountId: string; order: number; isVisible: boolean }[] }) =>
+    async (tx: TestTransaction) => {
+      for (const config of data) await tx.query('INSERT INTO team_discount_configs(club_id,team_group,discount_id,"order",is_visible) VALUES ($1,$2,$3,$4,$5)', [config.clubId, config.teamGroup, config.discountId, config.order, config.isVisible]);
+    });
+  mocks.$transaction.mockImplementation(async callback => db.transaction(async tx => {
+    if (Array.isArray(callback)) {
+      for (const operation of callback) await operation(tx);
+      return;
+    }
+    return callback({
     teamDiscountConfig: {
       updateMany: async ({ where, data }: { where: { clubId: string; discountId: string }; data: { isVisible: boolean } }) => {
         await tx.query("UPDATE team_discount_configs SET is_visible=$1 WHERE club_id=$2 AND discount_id=$3", [data.isVisible, where.clubId, where.discountId]);
@@ -76,7 +90,8 @@ beforeEach(async () => {
           [create.clubId, create.teamGroup, create.discountId, create.order, create.isVisible]);
       },
     },
-  })));
+    });
+  }));
 });
 
 async function assignDalida(isVisible = true) {
@@ -136,5 +151,24 @@ describe("club assignment through PATCH followed by member GET", () => {
     await assignDalida();
     await assignDalida(false);
     expect(await memberDiscounts()).toEqual(["Sport Depot"]);
+  });
+
+  it("loads and saves the club editor after promotion without duplicating or replacing group settings", async () => {
+    await db.query('INSERT INTO team_discount_configs(club_id,team_group,discount_id,"order") VALUES ($1,2012,$2,7)', [clubId, dalidaId]);
+    await assignDalida();
+    const before = await db.query("SELECT * FROM team_discount_configs WHERE team_group=2012");
+    const loaded = await clubEditorData(new NextRequest("http://localhost/api/admin/teams/discounts", { headers: { cookie: "admin_session=test" } }));
+    expect(loaded.status).toBe(200);
+    const clubs = await loaded.json();
+    const configs = clubs[0].configs;
+    const saved = await saveClubEditor(new NextRequest("http://localhost/api/admin/teams/discounts", {
+      method: "POST", headers: { cookie: "admin_session=test", "Content-Type": "application/json" },
+      body: JSON.stringify({ clubId, teamGroup: 0, discountConfigs: configs.map((config: { discountId: string; isVisible: boolean }, index: number) => ({ discountId: config.discountId, isVisible: config.isVisible, order: index })) }),
+    }));
+    expect(saved.status).toBe(200);
+    expect(configs).toHaveLength(2);
+    expect(configs.every((config: { teamGroup: number }) => config.teamGroup === 0)).toBe(true);
+    expect((await db.query("SELECT * FROM team_discount_configs WHERE team_group=2012")).rows).toEqual(before.rows);
+    expect((await db.query("SELECT discount_id FROM team_discount_configs WHERE team_group=0")).rows).toHaveLength(2);
   });
 });
